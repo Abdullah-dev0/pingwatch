@@ -16,47 +16,34 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 ## Architecture
 
 ```mermaid
-flowchart LR
-    subgraph Server["🖥️ Server · Node + Express"]
-        Timer["⏰ ping.job<br/>every 5 min"]
-        Check["⚙️ monitor.service<br/>runCheck()"]
-        SSE["📡 sse.service<br/>list of open tabs"]
-        API["🌐 REST API<br/>GET /api/pings"]
-    end
+flowchart TD
+    A["⏰ Timer<br/>Every 5 minutes"]
+    B["⚙️ Check Service<br/>Sends a test request"]
+    C["☁️ httpbin.org<br/>Returns a response"]
+    D[("🐘 PostgreSQL<br/>Stores ping results")]
+    E["📡 Live Update Service<br/>Sends real-time updates"]
+    F["💻 React Dashboard<br/>Displays results"]
+    G["🌐 REST API<br/>Loads previous results"]
 
-    Httpbin["☁️ httpbin.org<br/>/anything"]
-    DB[("🐘 Postgres")]
-
-    subgraph Browser["💻 Browser · React"]
-        UI["📊 Dashboard"]
-    end
-
-    Timer -->|"1 · start a check"| Check
-    Check -->|"2 · POST random JSON"| Httpbin
-    Httpbin -.->|"response"| Check
-    Check -->|"3 · save result"| DB
-    Check -->|"4 · new ping"| SSE
-    SSE ==>|"5 · live push"| UI
-    UI -->|"on load: history"| API
-    API -->|"read rows"| DB
-
-    classDef job fill:#fde68a,stroke:#b45309,color:#1f2937
-    classDef core fill:#bfdbfe,stroke:#1d4ed8,color:#1f2937
-    classDef live fill:#bbf7d0,stroke:#15803d,color:#1f2937
-    classDef ext fill:#e5e7eb,stroke:#4b5563,color:#1f2937
-    class Timer job
-    class Check,API core
-    class SSE,UI live
-    class Httpbin,DB ext
+    A --> B
+    B --> C
+    C --> B
+    B --> D
+    B --> E
+    E --> F
+    F --> G
+    G --> D
 ```
 
-**How to read it**
+### How to read it
 
-1. Every 5 minutes the timer starts a check.
-2. The server sends a random JSON body to httpbin and waits for the answer (or a timeout).
-3. The result is saved in Postgres, even when it failed.
-4. The saved ping goes to `sse.service`, which keeps a list of open browser tabs.
-5. Every open tab gets it straight away, and the table updates without a refresh.
+1. Every 5 minutes, the timer starts a check.
+2. The server sends a random JSON request to httpbin.
+3. httpbin returns a response.
+4. The server saves the result in PostgreSQL.
+5. The server sends a live update to connected browsers using SSE.
+6. The React dashboard displays the latest results.
+7. The REST API loads historical results from PostgreSQL.
 
 When the page first opens, it loads older pings through the REST API (`GET /api/pings`). After that, new ones arrive through the live connection (SSE).
 
