@@ -2,7 +2,7 @@
 
 Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload, stores every result (including failures) in Postgres, and shows them on a dashboard that updates live.
 
-> Status: core app done. Tests + CI, deployment and the AI enhancement are still in progress.
+> Status: core app, tests and CI done. Deployment and the AI enhancement are still in progress.
 
 ## Features
 
@@ -148,16 +148,41 @@ Not deployed yet. Plan:
 
 ## Testing strategy
 
-Not written yet. Plan:
+Tools: Vitest, Supertest (API), React Testing Library (UI).
 
-- **Core component: the check flow** - `monitor.service.runCheck()` together with `httpbin.service`. It is the reason the app exists, and it has the most edge cases. Tested with httpbin, the database and SSE mocked:
-  - 200 response → saved and broadcast
-  - 500 response → saved as failed, still broadcast
-  - timeout / network error → saved with `statusCode: null` and the error message
-  - database down → logged, not broadcast, job keeps running
-- **API**: `GET /api/pings` pagination and validation (400 on bad params)
-- **UI**: a couple of component tests for the table states
-- **CI**: GitHub Actions running lint, tests and coverage
+```bash
+npm test                # all tests
+npm run test:coverage   # with coverage reports (server/coverage, client/coverage)
+npm run lint
+```
+
+**Core parts of the app**
+
+1. The check flow: call httpbin → save → broadcast
+2. The history API (pagination, validation)
+3. Live updates (SSE)
+
+**Tested in depth: the check flow** (`httpbin.service` + `monitor.service`). It's the reason the app exists and it has the most ways to go wrong. httpbin, the database and SSE are faked, so the tests are fast and don't need the internet or a database.
+
+| Case | Expected |
+|---|---|
+| httpbin returns 200 | `ok: true`, saved, broadcast |
+| httpbin returns 500 | `ok: false`, still saved and broadcast |
+| timeout / network error | `ok: false`, `statusCode: null`, error message kept, no throw |
+| database is down | error logged, nothing broadcast, the job doesn't crash |
+| paging maths | page 3 of size 10 skips 20 rows; 0 pings = 1 page |
+
+Coverage for `src/services` is ~97% of statements.
+
+**Lighter tests for the rest**
+
+- API (`app.test.ts`): health, default paging, query params, 400 on bad input, 500 without leaking the real error, 404
+- SSE (`sse.service.test.ts`): messages go to every tab in SSE format, removed tabs get nothing
+- UI (`PingsTable.test.tsx`): shows rows, empty state, error state, Next goes to page 2
+
+**CI**: [GitHub Actions](.github/workflows/ci.yml) runs lint (oxlint), typecheck, tests and coverage on every push and PR, and uploads the coverage reports.
+
+Not tested: the real database queries (would need a test Postgres) and the SSE hook in the browser.
 
 ## Assumptions
 
@@ -176,7 +201,7 @@ Not written yet. Plan:
 
 ## Future improvements
 
-- Tests and CI (in progress)
+- Integration tests against a real Postgres (e.g. a Postgres service in CI)
 - Delete or archive old rows after N days
 - Charts of response time over time
 - Alerts when pings fail several times in a row
