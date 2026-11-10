@@ -148,11 +148,11 @@ Not deployed yet. Plan:
 
 ## Testing strategy
 
-Tools: Vitest, Supertest (API), React Testing Library (UI).
+Tools: Vitest.
 
 ```bash
 npm test                # all tests
-npm run test:coverage   # with coverage reports (server/coverage, client/coverage)
+npm run test:coverage   # with coverage reports (server/coverage)
 npm run lint
 ```
 
@@ -167,22 +167,14 @@ npm run lint
 | Case | Expected |
 |---|---|
 | httpbin returns 200 | `ok: true`, saved, broadcast |
-| httpbin returns 500 | `ok: false`, still saved and broadcast |
-| timeout / network error | `ok: false`, `statusCode: null`, error message kept, no throw |
+| httpbin returns 500 | `ok: false`, still saved |
+| no internet / timeout | `ok: false`, `statusCode: null`, error message kept, no throw |
 | database is down | error logged, nothing broadcast, the job doesn't crash |
 | paging maths | page 3 of size 10 skips 20 rows; 0 pings = 1 page |
 
-Coverage for `src/services` is ~97% of statements.
-
-**Lighter tests for the rest**
-
-- API (`app.test.ts`): health, default paging, query params, 400 on bad input, 500 without leaking the real error, 404
-- SSE (`sse.service.test.ts`): messages go to every tab in SSE format, removed tabs get nothing
-- UI (`PingsTable.test.tsx`): shows rows, empty state, error state, Next goes to page 2
-
 **CI**: [GitHub Actions](.github/workflows/ci.yml) runs lint (oxlint), typecheck, tests and coverage on every push and PR, and uploads the coverage reports.
 
-Not tested: the real database queries (would need a test Postgres) and the SSE hook in the browser.
+Not tested, to stay focused on the one core component: the API routes, SSE broadcasting, the React UI and the real database queries (would need a test Postgres).
 
 ## Assumptions
 
