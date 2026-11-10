@@ -6,6 +6,8 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 
 > Status: core app, tests, CI, deployment and the AI enhancement (Option B, LLM-powered insights, cut down on purpose, see [AI enhancement](#ai-enhancement-option-b-llm-powered-insights)) are done.
 
+**Contents:** [Features](#features) · [Architecture](#architecture) · [Tech choices](#tech-choices) · [Database schema](#database-schema) · [API](#api) · [Running locally](#running-locally) · [Deployment](#deployment) · [Testing strategy](#testing-strategy) · [AI enhancement](#ai-enhancement-option-b-llm-powered-insights) · [Assumptions](#assumptions) · [Trade-offs](#trade-offs-and-known-limitations) · [Future improvements](#future-improvements)
+
 ## Features
 
 - Scheduled ping to httpbin every 5 minutes (configurable), with a random JSON body
@@ -17,6 +19,7 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 - **AI chat**: ask questions about the data in plain English, answers stream in (Gemini)
 - **Incidents tab**: a ping slower than 2x the 24h average opens an incident with an AI-written report
 - **Cost controls**: max 20 LLM calls an hour, answer cache, token counting, cost shown on the dashboard
+- **Shareable views**: the tab and page are in the URL (`?tab=incidents`, `?page=3`), and the back button works
 
 ## Architecture
 
@@ -25,19 +28,29 @@ flowchart TD
     A["⏰ Timer<br/>Every 5 minutes"]
     B["⚙️ Check Service<br/>Sends a test request"]
     C["☁️ httpbin.org<br/>Returns a response"]
-    D[("🐘 PostgreSQL<br/>Stores ping results")]
+    D[("🐘 PostgreSQL<br/>pings, incidents, llm_usage")]
     E["📡 Live Update Service<br/>Sends real-time updates"]
-    F["💻 React Dashboard<br/>Displays results"]
-    G["🌐 REST API<br/>Loads previous results"]
+    F["💻 React Dashboard<br/>Table, Incidents tab, AI chat"]
+    G["🌐 REST API<br/>History, incidents, usage"]
+    H["🚨 Incident Check<br/>Slower than 2x average?"]
+    I["✨ Gemini<br/>Incident reports, chat answers"]
+    J["💬 Chat API<br/>Checks limits, runs tools"]
 
     A --> B
     B --> C
     C --> B
     B --> D
     B --> E
+    B --> H
+    H --> I
+    H --> D
+    H --> E
     E --> F
     F --> G
     G --> D
+    F --> J
+    J --> I
+    J --> D
 ```
 
 ### How to read it
@@ -49,6 +62,8 @@ flowchart TD
 5. The server sends a live update to connected browsers using SSE.
 6. The React dashboard displays the latest results.
 7. The REST API loads historical results from PostgreSQL.
+8. After each saved ping, the incident check compares it with the 24h average. If it's more than 2x slower, Gemini writes a report, it's saved, and browsers get an `incident` event.
+9. The chat sends questions to the Chat API, which checks the limits and lets Gemini call two read-only database queries (tools) before answering.
 
 When the page first opens, it loads older pings through the REST API (`GET /api/pings`). After that, new ones arrive through the live connection (SSE).
 
@@ -78,21 +93,23 @@ server/src/
 
 ```
 client/src/
-  components/     UI (table, row, pagination, stats, status dot)
-  hooks/          usePings (one page via React Query), useLivePings (SSE)
-  types/          Ping, PingsPage - same shapes as the API
+  components/     UI (table, pagination, stats, Incidents list, chat widget, tool steps, AI usage line)
+  hooks/          usePings, useLivePings (SSE), useAi (incidents + usage), useSearchParam (state in the URL)
+  types/          Ping, Incident, AiUsage - same shapes as the API
   lib/            fetch wrapper, React Query client, date formatting
 ```
 
 The table only reads from React Query's cache. History comes in through `GET /api/pings`; new pings from SSE are written into the cache for page 1. On reconnect the client refetches, so nothing is missed while it was offline.
+
+The chat uses the AI SDK's `useChat` hook, which handles streaming and message state. The current tab and page live in the URL rather than in React state, so a link opens the same view.
 
 ## Tech choices
 
 | Part | Choice | Why |
 |---|---|---|
 | Backend | Node + Express 5 + TypeScript | Preferred by the brief, small and easy to read |
-| Database | Postgres (Neon) | Relational fits one fixed table; JSONB stores the payloads; free hosted tier. Free app hosts often wipe local disk, so SQLite was ruled out |
-| DB access | `pg` with plain SQL | One table and three queries. An ORM (Drizzle/Prisma) would add more than it saves here |
+| Database | Postgres (Neon) | Three small tables with fixed columns fit a relational DB; JSONB stores the payloads and report lists; free hosted tier. Free app hosts often wipe local disk, so SQLite was ruled out |
+| DB access | `pg` with plain SQL | Three tables and a handful of queries. An ORM (Drizzle/Prisma) would add more than it saves here |
 | Scheduler | `setInterval` in the server | The server is always running, so no external cron is needed |
 | Live updates | Server-Sent Events | Data only flows server → browser. Plain HTTP, built-in browser reconnect, no extra library. WebSockets would be two-way, which we don't need |
 | Frontend | React + Vite + TypeScript | Preferred by the brief |
@@ -121,9 +138,35 @@ CREATE TABLE IF NOT EXISTS ping_results (
   error            TEXT
 );
 CREATE INDEX IF NOT EXISTS ping_results_created_at_idx ON ping_results (created_at DESC);
+
+-- one row per Gemini call: the hourly limit and the cost display both count these
+CREATE TABLE IF NOT EXISTS llm_usage (
+  id            SERIAL        PRIMARY KEY,
+  created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+  kind          TEXT          NOT NULL,  -- 'chat' | 'incident'
+  input_tokens  INTEGER       NOT NULL,
+  output_tokens INTEGER       NOT NULL,
+  cost_usd      NUMERIC(12,8) NOT NULL
+);
+CREATE INDEX IF NOT EXISTS llm_usage_created_at_idx ON llm_usage (created_at DESC);
+
+-- a ping that took more than 2x the 24h average
+CREATE TABLE IF NOT EXISTS incidents (
+  id               SERIAL      PRIMARY KEY,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ping_id          INTEGER     NOT NULL REFERENCES ping_results (id),
+  endpoint         TEXT        NOT NULL,
+  severity         TEXT        NOT NULL,  -- 'low' | 'medium' | 'high'
+  response_time_ms INTEGER     NOT NULL,
+  average_ms       INTEGER     NOT NULL,  -- the 24h average at the time
+  summary          TEXT        NOT NULL,
+  root_causes      JSONB       NOT NULL,  -- string[]
+  recommendations  JSONB       NOT NULL,  -- string[]
+  generated_by     TEXT        NOT NULL   -- 'llm' | 'template'
+);
 ```
 
-Two more tables for the AI part: `llm_usage` (one row per Gemini call: kind, tokens, cost; drives the rate limit and the cost display) and `incidents` (the slow ping, severity, the 24h average at the time, summary, root causes, recommendations, and whether the report came from the LLM or the fallback template). See the schema file.
+`average_ms` is stored on the incident because the average keeps moving; the report should show the number it was judged against.
 
 ## API
 
@@ -146,15 +189,18 @@ Requirements: Node 22+, Docker.
 npm install
 docker compose up -d                   # local Postgres on localhost:5433
 cp server/.env.example server/.env     # already points at the local Postgres
+# optional, for the AI chat and incident reports: set GEMINI_API_KEY in server/.env
 npm run dev
 ```
+
+Without `GEMINI_API_KEY` everything else works; the chat answers that it isn't configured and incidents get the template report.
 
 Local dev uses its own database on purpose. If it shared the production one, both servers would write pings into the same table, and the live dashboard would show two pings every 5 minutes with mixed response times.
 
 - Dashboard: http://localhost:5173
 - API: http://localhost:3001
 
-The table is created automatically on first start.
+The tables are created automatically on first start.
 
 ### Environment variables
 
@@ -183,7 +229,8 @@ One Docker image runs everything: Express serves the API under `/api` and the bu
 
 ```bash
 docker build -t http-monitor .
-docker run -d --restart unless-stopped -p 3001:3001 -e DATABASE_URL="<neon url>" http-monitor
+docker run -d --restart unless-stopped -p 3001:3001 \
+  -e DATABASE_URL="<neon url>" -e GEMINI_API_KEY="<key>" http-monitor
 ```
 
 The host must keep the process running (a VM, not a scale-to-zero platform), because the 5 minute ping job and the SSE connections live inside it.
@@ -204,7 +251,7 @@ browser ──HTTPS──► Caddy (:443, Let's Encrypt cert) ──► app cont
 | HTTPS | Caddy container in front of the app | Gets and renews the certificate automatically |
 | DNS | Cloudflare A record, DNS only (not proxied) | Keeps Caddy's certificate flow simple and SSE connections unaffected by Cloudflare's idle timeout |
 
-Both containers use `--restart unless-stopped`, so they come back after a crash or a VM reboot. `DATABASE_URL` lives in an env file on the VM, never in the image.
+Both containers use `--restart unless-stopped`, so they come back after a crash or a VM reboot. `DATABASE_URL` and `GEMINI_API_KEY` live in an env file on the VM, never in the image.
 
 ### Redeploying
 
@@ -287,7 +334,7 @@ The detection is plain maths; only the written report uses the LLM: one `generat
 
 Checks on `POST /api/chat`, in order:
 
-1. **Input limits**: question at most 500 characters, at most 50 messages accepted and only the **last 6 used**, and only their text (old tool results are dropped). `useChat` sends the whole conversation from the browser, so the server can't trust its size.
+1. **Input limits**: question at most 500 characters, at most 50 messages accepted and only the **last 6 used**, and only their text (old tool results are dropped). The server doesn't store chats, so the browser sends the recent conversation with each question; the widget already sends only the last 6, but the server can't trust what a browser sends, so it checks again.
 2. **Cache**: a first question (no conversation before it) is cached for 5 minutes, which is how often new data arrives. A cache hit uses **no** LLM call and doesn't count towards the limit. Follow-ups aren't cached because their answer depends on the conversation.
 3. **Hourly limit**: the brief's 20 calls/hour, shared by chat and incident reports. Every Gemini call writes a row to `llm_usage`; before a call we count the rows from the last hour. Being in the database, the count survives restarts, and "the last hour" slides by itself, so nothing needs resetting. **Every Gemini call counts, not every question**: one question with tool calls is usually 2-3 calls, so the step cap is lowered to the calls left.
 4. **Token count before the call**: Google's `countTokens` (`@google/genai`). The AI SDK has no pre-call counter, so this is the one place the Google SDK is used. Over 4,000 input tokens is refused. Counting is a separate, free endpoint: it doesn't run the model and doesn't count towards the hourly limit. If it fails, the size check is skipped (the hourly limit still caps the cost).
@@ -336,6 +383,10 @@ What keeps it low, biggest effect first:
 - The "random JSON payload" has a fixed shape with random values (`id`, `value`, `active`, `sentAt`).
 - One server instance. Broadcasting is in memory.
 - Response times are measured from this server, so they depend on where it runs (locally it's ~700 ms, almost all of it 3 network round trips to httpbin's US servers).
+- "Response time > 2x average" uses the average of **successful** pings in the last 24h (a 10 s timeout would distort it), needs at least 5 of them, and only judges successful pings. Failures already show in the table.
+- "Max 20 LLM calls per hour" means 20 calls to Gemini in any rolling hour, counted per call (one question can be several), shared by everyone, since there are no user accounts.
+- The chat only answers about this monitor's data. Questions like "why did it spike" get likely causes from our own measurements; we can't see httpbin's servers.
+- Gemini prices are set in env vars; the dashboard's cost is an estimate from them, not Google's bill.
 
 ## Trade-offs and known limitations
 
@@ -343,6 +394,7 @@ What keeps it low, biggest effect first:
 - **In-memory SSE clients**: running more than one server instance would need Redis pub/sub to broadcast across them.
 - **Browser connection limit**: over HTTP/1.1 a browser allows 6 connections per domain, and each open tab keeps one for SSE. Not an issue over HTTP/2 in production.
 - **No data retention**: the table grows forever (~288 rows a day).
+- **Cloudflare proxy is off**: the VM's IP is public and has no DDoS shield in front of it. Turning the proxy on would only help if the firewall also accepted traffic from Cloudflare's IPs alone, and SSE would need a heartbeat to survive Cloudflare's 100 s idle timeout. Not worth it for a public demo with no private data; the LLM cost is already capped by the hourly limit.
 
 ## Future improvements
 
