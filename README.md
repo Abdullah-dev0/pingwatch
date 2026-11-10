@@ -2,7 +2,7 @@
 
 Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload, stores every result (including failures) in Postgres, and shows them on a dashboard that updates live.
 
-**Live:** https://monitor.abdullahtech.me
+**Live:** https://monitor.abdullahtech.me (if it's ever down, the whole app runs locally in a few minutes, see [Running locally](#running-locally))
 
 > Status: core app, tests, CI, deployment and the AI enhancement (Option B, LLM-powered insights, cut down on purpose, see [AI enhancement](#ai-enhancement-option-b-llm-powered-insights)) are done.
 
@@ -292,7 +292,9 @@ npm run lint
 
 **CI**: [GitHub Actions](.github/workflows/ci.yml) runs lint (oxlint), typecheck, tests and coverage on every push and PR, and uploads the coverage reports.
 
-Not tested, to stay focused on the one core component: the API routes, SSE broadcasting, the React UI and the real database queries (would need a test Postgres).
+**Frontend**: a few component tests for the pings table (`PingsTable.test.tsx`): empty state, a failed ping row opening its error, and the error state recovering on Retry. Only `fetch` is faked, so the real component, hook and React Query run together.
+
+Not tested, to stay focused on the one core component: the API routes, SSE broadcasting, the rest of the React UI (chat, incidents) and the real database queries (would need a test Postgres).
 
 **AI part**: only the incident rule (`classify`: more than 2x the baseline, severity steps, no incident with fewer than 5 samples) has unit tests. It's the one piece of AI-feature logic that is pure and decides something on its own. The chat and reports were checked by hand against the real Gemini API (answers, tool calls, cache hit, usage rows); testing LLM output properly would need an eval set, which is out of scope here.
 
