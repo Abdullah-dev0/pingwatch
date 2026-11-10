@@ -128,13 +128,16 @@ Errors always look like `{ "error": { "message": "..." } }`.
 
 ## Running locally
 
-Requirements: Node 22+, a Postgres database (a free [Neon](https://neon.tech) project works).
+Requirements: Node 22+, Docker.
 
 ```bash
 npm install
-cp server/.env.example server/.env     # then set DATABASE_URL
+docker compose up -d                   # local Postgres on localhost:5433
+cp server/.env.example server/.env     # already points at the local Postgres
 npm run dev
 ```
+
+Local dev uses its own database on purpose. If it shared the production one, both servers would write pings into the same table, and the live dashboard would show two pings every 5 minutes with mixed response times.
 
 - Dashboard: http://localhost:5173
 - API: http://localhost:3001
@@ -147,7 +150,7 @@ The table is created automatically on first start.
 
 | Name | Default | Notes |
 |---|---|---|
-| `DATABASE_URL` | - | Required. Postgres connection string, use `sslmode=verify-full` |
+| `DATABASE_URL` | - | Required. Locally the Docker Postgres; in production Neon with `sslmode=verify-full` |
 | `PORT` | `3001` | |
 | `CORS_ORIGIN` | `http://localhost:5173` | Frontend URL(s), comma-separated, no trailing slash |
 | `PING_INTERVAL_MS` | `300000` (5 min) | Set to `10000` locally to watch live updates quickly |
