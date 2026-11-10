@@ -2,7 +2,9 @@
 
 Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload, stores every result (including failures) in Postgres, and shows them on a dashboard that updates live.
 
-> Status: core app, tests and CI done. Deployment and the AI enhancement are still in progress.
+**Live:** https://monitor.abdullahtech.me
+
+> Status: core app, tests, CI and deployment done. The AI enhancement is still in progress.
 
 ## Features
 
@@ -168,6 +170,35 @@ docker run -d --restart unless-stopped -p 3001:3001 -e DATABASE_URL="<neon url>"
 
 The host must keep the process running (a VM, not a scale-to-zero platform), because the 5 minute ping job and the SSE connections live inside it.
 
+### Where it runs
+
+Live at https://monitor.abdullahtech.me.
+
+```
+browser ──HTTPS──► Caddy (:443, Let's Encrypt cert) ──► app container (:3001) ──► Neon Postgres
+                   └──────── GCP e2-small VM, Ubuntu 24.04 ────────┘
+```
+
+| Piece | Choice | Why |
+|---|---|---|
+| Compute | GCP Compute Engine e2-small (Ubuntu 24.04, us-central1) | Long-running process, so the timer and SSE never get paused |
+| Database | Neon (managed Postgres) | No server to maintain; the pool reconnects after Neon suspends idle compute |
+| HTTPS | Caddy container in front of the app | Gets and renews the certificate automatically |
+| DNS | Cloudflare A record, DNS only (not proxied) | Keeps Caddy's certificate flow simple and SSE connections unaffected by Cloudflare's idle timeout |
+
+Both containers use `--restart unless-stopped`, so they come back after a crash or a VM reboot. `DATABASE_URL` lives in an env file on the VM, never in the image.
+
+### Redeploying
+
+There is no registry or CD yet. The image is built locally and copied over SSH:
+
+```bash
+docker build -t http-monitor .
+docker save http-monitor | gzip > hm.tar.gz
+scp hm.tar.gz <user>@<vm-ip>:~
+ssh <user>@<vm-ip> 'gunzip -c hm.tar.gz | sudo docker load && sudo docker rm -f app && sudo docker run -d --name app --network hm --restart unless-stopped --env-file prod.env http-monitor'
+```
+
 ## Testing strategy
 
 Tools: Vitest.
@@ -215,6 +246,7 @@ Not tested, to stay focused on the one core component: the API routes, SSE broad
 
 ## Future improvements
 
+- Push images to a registry (e.g. GHCR) from CI and deploy on merge, instead of copying the image by hand
 - Integration tests against a real Postgres (e.g. a Postgres service in CI)
 - Delete or archive old rows after N days
 - Charts of response time over time
