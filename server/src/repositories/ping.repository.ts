@@ -47,6 +47,12 @@ export async function listPings(limit: number, offset: number): Promise<SavedPin
 	return rows;
 }
 
+// time of the newest ping, or null when there are none yet
+export async function lastPingAt(): Promise<Date | null> {
+	const { rows } = await pool.query<{ at: Date | null }>("SELECT max(created_at) AS at FROM ping_results");
+	return rows[0]?.at ?? null;
+}
+
 export async function countPings(): Promise<number> {
 	// count(*) comes back as a string from pg, hence the ::int
 	const { rows } = await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM ping_results");
