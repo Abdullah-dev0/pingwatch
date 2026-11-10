@@ -384,7 +384,7 @@ All six answers were correct and used sensible tools and time ranges. `low` was 
 
 ### AI-specific trade-offs
 
-- **The budget check isn't atomic**: two questions arriving at the same moment can both see "1 call left" and go 1-2 calls over. Fine at this traffic; a strict version would reserve calls in a transaction.
+- **The hourly limit is counted in one process's memory**: that's what makes taking a slot safe when two requests arrive together, but it only holds with one server instance. Two instances would each allow 20 calls; then the count would have to move to the database (a row lock) or Redis. A slot is also taken even if the Gemini call then fails, so a failed call still counts until its hour is up.
 - **The cache is in memory**: it's lost on restart and not shared across instances (Redis would fix both). Only exact matches hit (after lower-casing and trimming); semantic matching would need embeddings, which cost calls too.
 - **One shared limit, no per-visitor limit**: the site is public with no login, so one visitor can use up the hour's 20 calls. They can't raise the cost above the cap, and incidents then fall back to the template report. A per-IP limit was tried and removed: IPs are weak identities (VPNs, shared networks), and it added a dependency and proxy setup for little gain at this scale.
 - **Chat and incidents share the 20**: a busy chat hour means incident reports use the template. Splitting the budget would avoid that, at the cost of one more rule to explain.
@@ -423,5 +423,5 @@ All six answers were correct and used sensible tools and time ranges. `low` was 
 - Monitor more than one URL
 - SSE heartbeat if the host's proxy closes idle connections
 - AI: an eval set of real questions to check answer quality when changing the prompt or model
-- AI: reserve budget atomically; move the answer cache to Redis if there's ever more than one instance
+- AI: move the hourly limit and the answer cache to Redis if there's ever more than one instance
 - AI: group consecutive slow pings into one incident instead of one per ping
