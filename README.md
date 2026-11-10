@@ -17,7 +17,7 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 - Live updates over Server-Sent Events (new pings appear without a refresh)
 - Dashboard: stats, table with expandable rows, pagination, loading / error / empty states, dark mode, works on mobile
 - **AI chat**: ask questions about the data in plain English, answers stream in (Gemini)
-- **Incidents tab**: a ping slower than 2x the 24h average opens an incident with an AI-written report
+- **Incidents tab**: a ping slower than 2x the 24h median opens an incident with an AI-written report
 - **Cost controls**: max 20 LLM calls an hour, answer cache, token counting, cost shown on the dashboard
 - **Shareable views**: the tab and page are in the URL (`?tab=incidents`, `?page=3`), and the back button works
 
@@ -32,7 +32,7 @@ flowchart TD
     E["📡 Live Update Service<br/>Sends real-time updates"]
     F["💻 React Dashboard<br/>Table, Incidents tab, AI chat"]
     G["🌐 REST API<br/>History, incidents, usage"]
-    H["🚨 Incident Check<br/>Slower than 2x average?"]
+    H["🚨 Incident Check<br/>Slower than 2x the 24h median?"]
     I["✨ Gemini<br/>Incident reports, chat answers"]
     J["💬 Chat API<br/>Checks limits, runs tools"]
 
@@ -62,7 +62,7 @@ flowchart TD
 5. The server sends a live update to connected browsers using SSE.
 6. The React dashboard displays the latest results.
 7. The REST API loads historical results from PostgreSQL.
-8. After each saved ping, the incident check compares it with the 24h average. If it's more than 2x slower, Gemini writes a report, it's saved, and browsers get an `incident` event.
+8. After each saved ping, the incident check compares it with the 24h median. If it's more than 2x slower, Gemini writes a report, it's saved, and browsers get an `incident` event.
 9. The chat sends questions to the Chat API, which checks the limits and lets Gemini call two read-only database queries (tools) before answering.
 
 When the page first opens, it loads older pings through the REST API (`GET /api/pings`). After that, new ones arrive through the live connection (SSE).
@@ -150,15 +150,15 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 );
 CREATE INDEX IF NOT EXISTS llm_usage_created_at_idx ON llm_usage (created_at DESC);
 
--- a ping that took more than 2x the 24h average
+-- a ping that took more than 2x the 24h median (average_ms holds that median)
 CREATE TABLE IF NOT EXISTS incidents (
   id               SERIAL      PRIMARY KEY,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ping_id          INTEGER     NOT NULL REFERENCES ping_results (id),
+  ping_id          INTEGER     NOT NULL REFERENCES ping_results (id) ON DELETE CASCADE,
   endpoint         TEXT        NOT NULL,
   severity         TEXT        NOT NULL,  -- 'low' | 'medium' | 'high'
   response_time_ms INTEGER     NOT NULL,
-  average_ms       INTEGER     NOT NULL,  -- the 24h average at the time
+  average_ms       INTEGER     NOT NULL,
   summary          TEXT        NOT NULL,
   root_causes      JSONB       NOT NULL,  -- string[]
   recommendations  JSONB       NOT NULL,  -- string[]
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS incidents (
 );
 ```
 
-`average_ms` is stored on the incident because the average keeps moving; the report should show the number it was judged against.
+`average_ms` is stored on the incident because the baseline keeps moving; the report should show the number it was judged against.
 
 ## API
 
@@ -294,7 +294,7 @@ npm run lint
 
 Not tested, to stay focused on the one core component: the API routes, SSE broadcasting, the React UI and the real database queries (would need a test Postgres).
 
-**AI part**: only the incident rule (`classify`: more than 2x the average, severity steps, no incident with fewer than 5 samples) has unit tests. It's the one piece of AI-feature logic that is pure and decides something on its own. The chat and reports were checked by hand against the real Gemini API (answers, tool calls, cache hit, usage rows); testing LLM output properly would need an eval set, which is out of scope here.
+**AI part**: only the incident rule (`classify`: more than 2x the baseline, severity steps, no incident with fewer than 5 samples) has unit tests. It's the one piece of AI-feature logic that is pure and decides something on its own. The chat and reports were checked by hand against the real Gemini API (answers, tool calls, cache hit, usage rows); testing LLM output properly would need an eval set, which is out of scope here.
 
 ## AI enhancement (Option B, LLM-powered insights)
 
@@ -392,12 +392,12 @@ All six answers were correct and used sensible tools and time ranges. `low` was 
 
 ## Assumptions
 
-- "Every 5 minutes" is measured from server start; one ping also runs on startup so a restart doesn't leave a gap.
+- "Every 5 minutes" keeps its rhythm across restarts: on startup the server pings right away only if the last ping is older than 5 minutes; otherwise it waits for that ping's next slot, so a deploy doesn't add an extra ping.
 - A ping counts as failed on timeout (10 s), network error or any non-2xx status.
 - The "random JSON payload" has a fixed shape with random values (`id`, `value`, `active`, `sentAt`).
 - One server instance. Broadcasting is in memory.
 - Response times are measured from this server, so they depend on where it runs (locally it's ~700 ms, almost all of it 3 network round trips to httpbin's US servers).
-- "Response time > 2x average" uses the average of **successful** pings in the last 24h (a 10 s timeout would distort it), needs at least 5 of them, and only judges successful pings. Failures already show in the table.
+- "Response time > 2x average": the **median** is used instead of the mean, on purpose. Slow pings pull the mean up, so after a slow spell the bar is higher and later slow pings are missed, most of all when there are only a few samples (e.g. after a fresh deploy). The median isn't moved by a few outliers. It's taken over **successful** pings in the last 24h (a 10 s timeout would distort it), needs at least 5 of them, and only successful pings are judged. Failures already show in the table.
 - "Max 20 LLM calls per hour" means 20 calls to Gemini in any rolling hour, counted per call (one question can be several), shared by everyone, since there are no user accounts.
 - The chat only answers about this monitor's data. Questions like "why did it spike" get likely causes from our own measurements; we can't see httpbin's servers.
 - Gemini prices are set in env vars; the dashboard's cost is an estimate from them, not Google's bill.

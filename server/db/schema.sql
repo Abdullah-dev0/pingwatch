@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 
 CREATE INDEX IF NOT EXISTS llm_usage_created_at_idx ON llm_usage (created_at DESC);
 
--- a ping that took more than 2x the 24h average
+-- a ping that took more than 2x the 24h median (average_ms holds that median)
 CREATE TABLE IF NOT EXISTS incidents (
   id               SERIAL      PRIMARY KEY,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
