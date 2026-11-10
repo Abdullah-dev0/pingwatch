@@ -23,3 +23,13 @@ export function formatRelative(iso: string): string {
 export function formatTime(iso: string): string {
 	return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
+
+const dayTime = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+// "2:19 PM – 8:19 PM", or with dates when the range crosses midnight: "Nov 9, 8:50 PM – Nov 10, 8:50 PM"
+export function formatRange(fromIso: string, toIso: string): string {
+	const from = new Date(fromIso);
+	const to = new Date(toIso);
+	if (from.toDateString() === to.toDateString()) return `${formatTime(fromIso)} – ${formatTime(toIso)}`;
+	return `${dayTime.format(from)} – ${dayTime.format(to)}`;
+}

@@ -1,7 +1,7 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 import { useState } from "react";
 import { toolsRunning } from "../lib/chat";
-import { formatTime } from "../lib/format";
+import { formatRange } from "../lib/format";
 
 // what the server's tools return (getStats / findPings in chat.service.ts)
 interface StatsOutput {
@@ -60,7 +60,7 @@ export function ToolSteps({ message }: { message: UIMessage }) {
 // what the step looked for, in words: "5 slowest pings · 2:19 PM – 8:19 PM"
 function describe(step: ToolPart): string {
 	const input = step.input as Partial<PingsInput> | undefined;
-	const range = input?.from && input.to ? ` · ${formatTime(input.from)} – ${formatTime(input.to)}` : "";
+	const range = input?.from && input.to ? ` · ${formatRange(input.from, input.to)}` : "";
 
 	switch (getToolName(step)) {
 		case "getStats":

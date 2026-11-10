@@ -18,8 +18,7 @@ export default function App() {
 	const setTab = (name: Tab) => setTabParam(name === "Pings" ? null : name.toLowerCase());
 
 	return (
-		// pb-24: room at the bottom so the floating chat button never covers the pagination
-		<div className="mx-auto max-w-5xl px-4 pt-10 pb-24 sm:px-6">
+		<div className="mx-auto max-w-5xl px-4 pt-10 pb-24 sm:px-6 xl:pb-10">
 			<header className="mb-8 flex items-start justify-between gap-4">
 				<div>
 					<h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -27,8 +26,8 @@ export default function App() {
 						HTTP Monitor
 					</h1>
 					<p className="mt-1 text-sm text-zinc-500">
-						Pinging <span className="font-mono text-zinc-700 dark:text-zinc-300">httpbin.org/anything</span>{" "}
-						every 5 minutes
+						Pinging <span className="font-mono text-zinc-700 dark:text-zinc-300">httpbin.org/anything</span> every 5
+						minutes
 					</p>
 				</div>
 				<LiveStatus status={connectionStatus} />
@@ -48,8 +47,7 @@ export default function App() {
 							tab === name
 								? "border-zinc-900 text-zinc-900 dark:border-zinc-100 dark:text-zinc-100"
 								: "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-						}`}
-					>
+						}`}>
 						{name}
 					</button>
 				))}
