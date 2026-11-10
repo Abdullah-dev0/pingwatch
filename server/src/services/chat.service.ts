@@ -14,13 +14,20 @@ A ping fails on a timeout (10 s), a network error or a non-2xx status.
 Rules:
 - Use the tools to get data. Never guess numbers.
 - Pick the smallest time range that answers the question.
+- Each tool call round costs money, so call the tools you need together in one round, not one by one.
+- For "why" or "spike" questions, make these calls together, then answer:
+  getStats for the period asked, getStats for the 24 hours before now as the baseline,
+  and findPings sorted by slowest for the period asked.
 - Show times in the user's timezone, e.g. "2:15 PM".
 - When asked "why", give likely causes based on the data (time of day, failures nearby, how far from normal),
   and say clearly that it's a likely cause, not a certainty. You cannot see httpbin's servers.
 - If the question is not about this monitoring data, say you can only answer questions about it.
 - Keep answers short: a few sentences or a short list. Plain text only, no markdown tables or headings.`;
 
-const MAX_STEPS = 5;
+const MAX_STEPS = 7;
+
+const FINAL_STEP_INSTRUCTION =
+	"You have no tool calls left. Do not call any tool. Answer now using only the tool results above; if they are not enough, say what you found and what is missing.";
 
 const timeRange = {
 	from: z.string().describe("Start time, ISO 8601 with timezone offset"),
@@ -62,8 +69,17 @@ export async function streamChatAnswer({ messages, timezone, stepsAllowed, onAns
 		messages: await convertToModelMessages(messages),
 		tools,
 		stopWhen: isStepCount(maxSteps),
-		// last allowed step: no more tools, so the model has to write its answer
-		prepareStep: ({ stepNumber }) => (stepNumber === maxSteps - 1 ? { toolChoice: "none" } : undefined),
+		// last allowed step: no more tools, so the model has to write its answer.
+		// Gemini ignores toolChoice "none" alone after a few tool calls (the SDK then throws
+		// ToolChoiceViolationError), so it also gets an explicit instruction.
+		prepareStep: ({ stepNumber, messages }) =>
+			stepNumber === maxSteps - 1
+				? {
+						activeTools: [],
+						toolChoice: "none",
+						messages: [...messages, { role: "user", content: FINAL_STEP_INSTRUCTION }],
+					}
+				: undefined,
 		// every step is one Gemini call, so every step counts towards the hourly limit
 		onStepEnd: ({ usage }) => recordCall("chat", usage),
 		onEnd: ({ text }) => {
