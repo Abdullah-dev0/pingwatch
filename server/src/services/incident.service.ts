@@ -8,6 +8,7 @@ import { HTTPBIN_URL, INCIDENT_MIN_SAMPLES, SEVERITY_THRESHOLDS } from "../confi
 import { callsLeft, recordCall } from "./llmBudget.service.js";
 
 // the rule from the brief: slower than 2x the average is an incident.
+// "average" here is the 24h median (see getBaseline), so past slow pings don't raise the bar.
 // Pure function (no database, no LLM) so it's easy to test.
 export function classify(responseTimeMs: number, avgMs: number | null, samples: number): Severity | null {
 	// too few samples and the average means little (e.g. right after the first deploy)
@@ -30,7 +31,7 @@ type Report = z.infer<typeof reportSchema>;
 function templateReport(ping: SavedPing, avgMs: number): Report {
 	const ratio = (ping.responseTimeMs / avgMs).toFixed(1);
 	return {
-		summary: `Response took ${ping.responseTimeMs} ms, ${ratio}x the 24h average of ${avgMs} ms.`,
+		summary: `Response took ${ping.responseTimeMs} ms, ${ratio}x the 24h median of ${avgMs} ms.`,
 		rootCauses: ["Slow response from httpbin.org or the network path to it (not analysed: AI quota used up or unavailable)"],
 		recommendations: ["Check whether the next pings recover", "Look for failures around the same time"],
 	};
@@ -43,7 +44,7 @@ async function llmReport(ping: SavedPing, avgMs: number, severity: Severity): Pr
 	const prompt = `Write a short incident report for an HTTP monitor.
 Endpoint: POST ${HTTPBIN_URL} (a public echo service, we don't control it)
 Time: ${ping.createdAt}
-Response time: ${ping.responseTimeMs} ms (24h average of successful pings: ${avgMs} ms), severity: ${severity}
+Response time: ${ping.responseTimeMs} ms (24h median of successful pings: ${avgMs} ms), severity: ${severity}
 Status: ${ping.statusCode ?? "no response"}${ping.error ? `, error: ${ping.error}` : ""}
 Last hour: ${lastHour.total} pings, ${lastHour.failures} failed, avg ${lastHour.avgMs} ms, max ${lastHour.maxMs} ms.
 Root causes must be plausible for a public echo service called over the internet. Recommendations must be actionable for us, the monitoring side.`;

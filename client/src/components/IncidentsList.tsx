@@ -36,7 +36,7 @@ export function IncidentsList() {
 					<CheckIcon />
 				</span>
 				<p className="mt-3 text-sm font-medium">All clear</p>
-				<p className="mt-1 text-sm text-zinc-500">An incident opens when a response takes more than 2× the 24h average.</p>
+				<p className="mt-1 text-sm text-zinc-500">An incident opens when a response takes more than 2× the 24h median.</p>
 			</div>
 		);
 	}
@@ -94,7 +94,7 @@ function IncidentRow({ incident, open, onToggle }: { incident: Incident; open: b
 					{/* the key numbers first, so nobody has to dig them out of the summary */}
 					<dl className="grid grid-cols-3 gap-2">
 						<Metric label="Response" value={`${incident.responseTimeMs.toLocaleString()} ms`} />
-						<Metric label="24h average" value={`${incident.averageMs.toLocaleString()} ms`} />
+						<Metric label="24h median" value={`${incident.averageMs.toLocaleString()} ms`} />
 						<Metric
 							label="Severity"
 							value={

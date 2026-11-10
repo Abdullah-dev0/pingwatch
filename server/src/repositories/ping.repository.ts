@@ -125,10 +125,11 @@ export async function getPingStats(from: string, to: string): Promise<PingStats>
 	return rows[0]!;
 }
 
-// average of successful pings over the 24h before this one
+// median of successful pings over the 24h before this one.
+// Median, not mean: a few slow pings would drag a mean up and hide the next slow ones.
 export async function getBaseline(beforeId: number): Promise<{ avgMs: number | null; samples: number }> {
 	const { rows } = await pool.query<{ avgMs: number | null; samples: number }>(
-		`SELECT round(avg(response_time_ms))::int AS "avgMs", count(*)::int AS samples
+		`SELECT round(percentile_cont(0.5) WITHIN GROUP (ORDER BY response_time_ms))::int AS "avgMs", count(*)::int AS samples
 		FROM ping_results
 		WHERE ok AND id < $1 AND created_at > now() - interval '24 hours'`,
 		[beforeId],
