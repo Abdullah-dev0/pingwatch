@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePings } from "../hooks/usePings";
+import { useSearchParam } from "../hooks/useSearchParam";
 import { Pagination } from "./Pagination";
 import { PingRow } from "./PingRow";
 import { TableSkeleton } from "./TableSkeleton";
@@ -7,9 +8,17 @@ import { Message } from "./ui/Message";
 import { button, card } from "./ui/styles";
 
 export function PingsTable() {
-	const [page, setPage] = useState(1);
+	// page lives in the URL (?page=3) so it can be shared; anything that isn't a whole number >= 1 means page 1
+	const [pageParam, setPageParam] = useSearchParam("page");
+	const page = Math.max(1, Number.parseInt(pageParam ?? "", 10) || 1);
 	const [openId, setOpenId] = useState<number | null>(null);
 	const { data, isPending, isError, error, refetch, isPlaceholderData } = usePings(page);
+
+	// a shared link to page 9 when there are only 3 pages: go to the last page instead of an empty table
+	const totalPages = data?.totalPages;
+	useEffect(() => {
+		if (totalPages && page > totalPages) setPageParam(String(totalPages), { replace: true });
+	}, [page, totalPages, setPageParam]);
 
 	if (isPending) {
 		return <TableSkeleton />;
@@ -32,7 +41,7 @@ export function PingsTable() {
 	}
 
 	function goTo(newPage: number) {
-		setPage(newPage);
+		setPageParam(newPage === 1 ? null : String(newPage));
 		setOpenId(null);
 	}
 

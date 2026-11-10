@@ -15,6 +15,12 @@ const envSchema = z.object({
 		.int()
 		.min(5000)
 		.default(5 * 60 * 1000),
+	// optional: without it the AI features answer with a 'not configured' message
+	GEMINI_API_KEY: z.string().optional(),
+	GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
+	// USD per 1M tokens, used for the cost display. Check https://ai.google.dev/gemini-api/docs/pricing
+	GEMINI_INPUT_USD_PER_M: z.coerce.number().min(0).default(0.3),
+	GEMINI_OUTPUT_USD_PER_M: z.coerce.number().min(0).default(2.5),
 });
 
 export const env = envSchema.parse(process.env);

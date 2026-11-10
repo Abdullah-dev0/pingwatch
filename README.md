@@ -4,7 +4,7 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 
 **Live:** https://monitor.abdullahtech.me
 
-> Status: core app, tests, CI and deployment done. The AI enhancement is still in progress.
+> Status: core app, tests, CI, deployment and the AI enhancement (Option B, LLM-powered insights, cut down on purpose, see [AI enhancement](#ai-enhancement-option-b-llm-powered-insights)) are done.
 
 ## Features
 
@@ -14,6 +14,9 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 - REST endpoint for history with page-based pagination
 - Live updates over Server-Sent Events (new pings appear without a refresh)
 - Dashboard: stats, table with expandable rows, pagination, loading / error / empty states, dark mode, works on mobile
+- **AI chat**: ask questions about the data in plain English, answers stream in (Gemini)
+- **Incidents tab**: a ping slower than 2x the 24h average opens an incident with an AI-written report
+- **Cost controls**: max 20 LLM calls an hour, answer cache, token counting, cost shown on the dashboard
 
 ## Architecture
 
@@ -97,6 +100,10 @@ The table only reads from React Query's cache. History comes in through `GET /ap
 | Styling | Tailwind CSS | Fast to build a clean UI without a CSS file per component |
 | Validation | zod | Env vars and query params checked in one place |
 | Logging | pino + morgan | morgan logs each request in one line, pino logs app events (ping results, errors) with levels |
+| LLM | Gemini Flash (`gemini-3.8-flash`) | Cheap and fast enough for lookups over small data. The model is an env var |
+| LLM library | Vercel AI SDK (`ai`, `@ai-sdk/google`, `@ai-sdk/react`) | Tool loop, structured output and the streaming `useChat` hook out of the box. Switching provider is a one-line change |
+| Token counting | `@google/genai` | Only for `countTokens`, which the AI SDK doesn't have |
+| LLM rate limit | Count of `llm_usage` rows in the last hour | No extra library; survives restarts; the same table drives the cost display |
 
 ## Database schema
 
@@ -116,13 +123,18 @@ CREATE TABLE IF NOT EXISTS ping_results (
 CREATE INDEX IF NOT EXISTS ping_results_created_at_idx ON ping_results (created_at DESC);
 ```
 
+Two more tables for the AI part: `llm_usage` (one row per Gemini call: kind, tokens, cost; drives the rate limit and the cost display) and `incidents` (the slow ping, severity, the 24h average at the time, summary, root causes, recommendations, and whether the report came from the LLM or the fallback template). See the schema file.
+
 ## API
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/health` | Liveness check |
 | GET | `/api/pings?page=1&pageSize=10` | History, newest first. Returns `{ items, page, pageSize, total, totalPages }`. `pageSize` 1-100, default 10. Bad values return 400 |
-| GET | `/api/pings/stream` | SSE stream. Each new ping is sent as `data: {...}` |
+| GET | `/api/pings/stream` | SSE stream. Each new ping is sent as `data: {...}`; a new incident as `event: incident` |
+| POST | `/api/chat` | AI chat. Body `{ messages, timezone }` (AI SDK `useChat` format), streamed answer |
+| GET | `/api/incidents` | Latest 50 incidents, newest first |
+| GET | `/api/ai/usage` | LLM calls in the last hour vs the limits, tokens and estimated cost (24h and total) |
 
 Errors always look like `{ "error": { "message": "..." } }`.
 
@@ -154,6 +166,9 @@ The table is created automatically on first start.
 | `PORT` | `3001` | |
 | `CORS_ORIGIN` | `http://localhost:5173` | Frontend URL(s), comma-separated, no trailing slash |
 | `PING_INTERVAL_MS` | `300000` (5 min) | Set to `10000` locally to watch live updates quickly |
+| `GEMINI_API_KEY` | - | Optional. Without it the app runs normally; the chat says it isn't configured and incidents get the template report |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | Any Gemini text model |
+| `GEMINI_INPUT_USD_PER_M` / `GEMINI_OUTPUT_USD_PER_M` | `0.3` / `2.5` | Price per 1M tokens, only for the cost display. Set them to the model's real price |
 | `NODE_ENV` | `development` | |
 
 **client/.env**
@@ -232,6 +247,88 @@ npm run lint
 
 Not tested, to stay focused on the one core component: the API routes, SSE broadcasting, the React UI and the real database queries (would need a test Postgres).
 
+**AI part**: only the incident rule (`classify`: more than 2x the average, severity steps, no incident with fewer than 5 samples) has unit tests. It's the one piece of AI-feature logic that is pure and decides something on its own. The chat and reports were checked by hand against the real Gemini API (answers, tool calls, cache hit, usage rows); testing LLM output properly would need an eval set, which is out of scope here.
+
+## AI enhancement (Option B, LLM-powered insights)
+
+### What was built, and what was cut
+
+| Brief item | Status |
+|---|---|
+| 1. Chat over the monitoring data, "constructs database queries" | ✅ The model picks filters for 2 fixed queries (tools); it never writes SQL |
+| 2. Automatic incident reports (> 2x average), stored, "Incidents" tab | ✅ |
+| 3. Smart response analysis of httpbin payloads | ❌ Cut on purpose, see below |
+| 4. Cost controls: token counting, cache, 20 calls/hour, fallback, cost display | ✅ |
+
+**Why part 3 was cut**: httpbin `/anything` just echoes back what we sent, plus our own headers and IP. Every response has the same structure, so there are no real "patterns" or "categories" to find. An LLM summary of it would cost tokens on every ping and say the same thing each time. The time went into the parts that do something useful.
+
+### How the chat works
+
+```
+useChat (React) ──POST /api/chat──► checks (see below) ──► streamText (AI SDK + Gemini)
+                ◄── streamed answer ─┘                         │  model calls tools, up to 5 steps
+                                                               ▼
+                                          getStats(from, to)      findPings(from, to, onlyFailures, sortBy, limit)
+                                                   └── fixed, parameterised SQL ──┘
+```
+
+- **Tools instead of text-to-SQL.** Letting an LLM write SQL against a public endpoint is an injection risk and is hard to make correct. Two fixed queries with typed parameters (zod) cover the example questions: "slowest today" is `findPings(sortBy: slowest)`, "summarise the last 24h" is `getStats` plus `findPings(onlyFailures)`, "why the spike at 2pm" is both, around 2pm.
+- **It's a small agent**: the model decides which tools to call and can call several before answering. The loop is capped at 5 steps, and on the last step tools are switched off so it has to answer.
+- **Timezone**: the browser sends its timezone, so "2pm" means the user's 2pm.
+- Tool results leave out request/response bodies: they cost tokens and don't help answer questions about timing.
+
+### How incident reports work
+
+After each ping is saved: if it succeeded and took **more than 2x the average of successful pings in the last 24h** (needs at least 5 samples), an incident is opened. Severity: low > 2x, medium > 3x, high > 4x.
+
+The detection is plain maths; only the written report uses the LLM: one `generateText` call with a zod schema (structured output), given the slow ping and the last hour's stats. If the hourly limit is used up, or Gemini fails, a **template report** is saved instead, so an incident is never lost because of the LLM. The browser gets an `incident` SSE event and refreshes the tab.
+
+### Cost controls
+
+Checks on `POST /api/chat`, in order:
+
+1. **Input limits**: question at most 500 characters, at most 50 messages accepted and only the **last 6 used**, and only their text (old tool results are dropped). `useChat` sends the whole conversation from the browser, so the server can't trust its size.
+2. **Cache**: a first question (no conversation before it) is cached for 5 minutes, which is how often new data arrives. A cache hit uses **no** LLM call and doesn't count towards the limit. Follow-ups aren't cached because their answer depends on the conversation.
+3. **Hourly limit**: the brief's 20 calls/hour, shared by chat and incident reports. Every Gemini call writes a row to `llm_usage`; before a call we count the rows from the last hour. Being in the database, the count survives restarts, and "the last hour" slides by itself, so nothing needs resetting. **Every Gemini call counts, not every question**: one question with tool calls is usually 2-3 calls, so the step cap is lowered to the calls left.
+4. **Token count before the call**: Google's `countTokens` (`@google/genai`). The AI SDK has no pre-call counter, so this is the one place the Google SDK is used. Over 4,000 input tokens is refused. If the count call fails, it falls back to an estimate (characters / 4).
+
+**Fallback when over the limit**: the chat answers with a fixed message ("used its hourly limit, back within the hour") streamed like a normal answer, so the widget handles it the same way. Incidents get the template report.
+
+**Cost display**: tokens and cost from each call's usage are stored in `llm_usage`; the dashboard shows calls this hour vs the limit, tokens and estimated cost for the last 24h and in total.
+
+### Cost analysis
+
+Measured locally with `gemini-3.8-flash`:
+
+| What | Gemini calls | Tokens | Cost* |
+|---|---|---|---|
+| One chat question (tools + answer) | 2-3 | ~2,500-3,000 | ~$0.0025 |
+| One incident report | 1 | ~160 in (prompt) + output | < $0.001 |
+| Same question again within 5 min | 0 (cache) | 0 | $0 |
+
+*At the configured price of $0.30 / $2.50 per 1M input / output tokens. Gemini 3 models "think" before answering, and that thinking is billed as output tokens, which is why output is most of the cost.
+
+**Worst case**: all 20 calls used every hour, all day: about 20 x $0.0012 ≈ **$0.025 an hour, ~$0.60 a day, ~$18 a month**. That's the ceiling the rate limit buys. Real use will be far lower: incidents are rare, and most visitors ask one of the suggested questions, which hit the cache.
+
+What keeps it low, biggest effect first:
+
+1. **The hourly cap**: a hard ceiling no matter how much traffic comes.
+2. **A Flash model, not Pro**: the questions are simple lookups over a few hundred small rows. A Pro model would cost several times more for no visible gain.
+3. **Small tool results**: no payload bodies, at most 20 rows.
+4. **Trimmed history**: last 6 messages, text only. Without this, every follow-up resends all earlier tool results.
+5. **The cache** for repeated first questions (the suggested questions are the same for everyone).
+6. **Stable prompt prefix**: the fixed instructions come first and the current time last, so Gemini's automatic (implicit) caching can reuse the prefix.
+
+### AI-specific trade-offs
+
+- **The budget check isn't atomic**: two questions arriving at the same moment can both see "1 call left" and go 1-2 calls over. Fine at this traffic; a strict version would reserve calls in a transaction.
+- **The cache is in memory**: it's lost on restart and not shared across instances (Redis would fix both). Only exact matches hit (after lower-casing and trimming); semantic matching would need embeddings, which cost calls too.
+- **One shared limit, no per-visitor limit**: the site is public with no login, so one visitor can use up the hour's 20 calls. They can't raise the cost above the cap, and incidents then fall back to the template report. A per-IP limit was tried and removed: IPs are weak identities (VPNs, shared networks), and it added a dependency and proxy setup for little gain at this scale.
+- **Chat and incidents share the 20**: a busy chat hour means incident reports use the template. Splitting the budget would avoid that, at the cost of one more rule to explain.
+- **Token counting is an extra round trip** (~100-200 ms) per question. It's free on Google's side and the brief asks for it; without the requirement, the usage reported after the call would be enough.
+- **The cost shown is an estimate**: it uses the configured price, not Google's bill.
+- **The "why" answers are guesses**: the model only sees our measurements, not httpbin's servers. The prompt tells it to say so.
+
 ## Assumptions
 
 - "Every 5 minutes" is measured from server start; one ping also runs on startup so a restart doesn't leave a gap.
@@ -256,3 +353,6 @@ Not tested, to stay focused on the one core component: the API routes, SSE broad
 - Alerts when pings fail several times in a row
 - Monitor more than one URL
 - SSE heartbeat if the host's proxy closes idle connections
+- AI: an eval set of real questions to check answer quality when changing the prompt or model
+- AI: reserve budget atomically; move the answer cache to Redis if there's ever more than one instance
+- AI: group consecutive slow pings into one incident instead of one per ping

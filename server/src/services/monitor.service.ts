@@ -1,6 +1,7 @@
 import { logger } from "../lib/logger.js";
 import { countPings, listPings, type SavedPing, savePing } from "../repositories/ping.repository.js";
 import { callHttpbin } from "./httpbin.service.js";
+import { checkForIncident } from "./incident.service.js";
 import { broadcast } from "./sse.service.js";
 
 export async function runCheck(): Promise<void> {
@@ -14,12 +15,21 @@ export async function runCheck(): Promise<void> {
 	}
 
 	// if the db is down just log it, the next run will try again
+	let saved: SavedPing;
 	try {
-		const saved = await savePing(result);
+		saved = await savePing(result);
 		logger.info({ id: saved.id }, "Ping saved");
 		broadcast(saved);
 	} catch (err) {
 		logger.error({ err }, "Could not save ping");
+		return;
+	}
+
+	try {
+		const incident = await checkForIncident(saved);
+		if (incident) broadcast(incident, "incident");
+	} catch (err) {
+		logger.error({ err }, "Incident check failed");
 	}
 }
 

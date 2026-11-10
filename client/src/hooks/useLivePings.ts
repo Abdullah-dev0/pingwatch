@@ -46,6 +46,12 @@ export function useLivePings(): ConnectionStatus {
 			});
 		};
 
+		// a new incident report was saved (the LLM may have used a call too)
+		source.addEventListener("incident", () => {
+			queryClient.invalidateQueries({ queryKey: ["incidents"] });
+			queryClient.invalidateQueries({ queryKey: ["ai-usage"] });
+		});
+
 		return () => source.close();
 	}, [queryClient]);
 

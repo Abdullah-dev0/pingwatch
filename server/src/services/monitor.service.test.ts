@@ -8,6 +8,7 @@ import { broadcast } from "./sse.service.js";
 // We then tell each fake what to return with mockResolvedValue (or mockRejectedValue to make it fail).
 vi.mock("./httpbin.service.js");
 vi.mock("./sse.service.js");
+vi.mock("./incident.service.js");
 vi.mock("../repositories/ping.repository.js");
 
 const ping = {

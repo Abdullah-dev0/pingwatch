@@ -1,4 +1,4 @@
-const HTTPBIN_URL = "https://httpbin.org/anything";
+export const HTTPBIN_URL = "https://httpbin.org/anything";
 const TIMEOUT_MS = 10_000;
 
 export interface PingResult {

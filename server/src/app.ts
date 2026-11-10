@@ -13,6 +13,7 @@ export function createApp(): Express {
   const app = express();
 
   app.use(cors({ origin: env.CORS_ORIGIN }));
+  app.use(express.json({ limit: '100kb' }));
   // one line per request, e.g. "GET /api/pings 200 4949 - 253.1 ms"
   // sent through our logger so all logs look the same
   app.use(morgan('tiny', { stream: { write: (line) => logger.info(line.trim()) } }));

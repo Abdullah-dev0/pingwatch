@@ -11,9 +11,11 @@ export function removeClient(res: Response) {
 	clients.delete(res);
 }
 
-// send the data to every open tab
-export function broadcast(data: unknown) {
+// send the data to every open tab.
+// No event name = a new ping (the browser's onmessage); named events (e.g. "incident") need addEventListener.
+export function broadcast(data: unknown, event?: string) {
+	const message = `${event ? `event: ${event}\n` : ""}data: ${JSON.stringify(data)}\n\n`;
 	for (const res of clients) {
-		res.write(`data: ${JSON.stringify(data)}\n\n`);
+		res.write(message);
 	}
 }
