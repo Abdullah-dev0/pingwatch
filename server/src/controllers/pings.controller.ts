@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { z } from "zod";
 import { getHistory } from "../services/monitor.service.js";
-import { addClient } from "../services/sse.service.js";
+import { addClient, removeClient } from "../services/sse.service.js";
 
 const listQuery = z.object({
 	page: z.coerce.number().int().min(1).default(1),
@@ -31,6 +31,6 @@ export function streamPings(req: Request, res: Response) {
 	});
 	res.flushHeaders();
 
-	const removeClient = addClient((message) => res.write(message));
-	req.on("close", removeClient);
+	addClient(res); // tab opened: add it to the list
+	req.on("close", () => removeClient(res)); // tab closed: take it off the list
 }

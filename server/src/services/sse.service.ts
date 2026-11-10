@@ -1,19 +1,19 @@
-// one entry per open browser tab; each is just "a way to send a message"
-type Send = (message: string) => void;
+import type { Response } from "express";
 
-const clients = new Set<Send>();
+// every open browser tab, as its open connection
+const clients = new Set<Response>();
 
-// returns a function that removes the client again
-export function addClient(send: Send): () => void {
-	clients.add(send);
-	return () => {
-		clients.delete(send);
-	};
+export function addClient(res: Response) {
+	clients.add(res);
 }
 
+export function removeClient(res: Response) {
+	clients.delete(res);
+}
+
+// send the data to every open tab
 export function broadcast(data: unknown) {
-	const message = `data: ${JSON.stringify(data)}\n\n`;
-	for (const send of clients) {
-		send(message);
+	for (const res of clients) {
+		res.write(`data: ${JSON.stringify(data)}\n\n`);
 	}
 }
