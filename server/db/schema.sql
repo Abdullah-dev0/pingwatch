@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS llm_usage_created_at_idx ON llm_usage (created_at DES
 CREATE TABLE IF NOT EXISTS incidents (
   id               SERIAL      PRIMARY KEY,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ping_id          INTEGER     NOT NULL REFERENCES ping_results (id),
+  ping_id          INTEGER     NOT NULL REFERENCES ping_results (id) ON DELETE CASCADE,
   endpoint         TEXT        NOT NULL,
   severity         TEXT        NOT NULL,  -- 'low' | 'medium' | 'high'
   response_time_ms INTEGER     NOT NULL,
@@ -39,3 +39,9 @@ CREATE TABLE IF NOT EXISTS incidents (
   recommendations  JSONB       NOT NULL,  -- string[]
   generated_by     TEXT        NOT NULL   -- 'llm' | 'template' (template when out of quota or the LLM failed)
 );
+
+-- deleting a ping deletes its incidents; re-applied each start so existing databases pick it up
+ALTER TABLE incidents
+  DROP CONSTRAINT IF EXISTS incidents_ping_id_fkey,
+  ADD CONSTRAINT incidents_ping_id_fkey
+    FOREIGN KEY (ping_id) REFERENCES ping_results (id) ON DELETE CASCADE;
