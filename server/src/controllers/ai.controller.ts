@@ -85,7 +85,7 @@ export async function postChat(req: Request, res: Response) {
 	const cached = isFirstQuestion && getCachedAnswer(question);
 	if (cached) return replyWith(res, cached);
 
-	const stepsAllowed = await callsLeft();
+	const stepsAllowed = callsLeft();
 	if (stepsAllowed === 0) {
 		return replyWith(
 			res,

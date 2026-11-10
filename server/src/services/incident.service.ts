@@ -5,7 +5,7 @@ import { logger } from "../lib/logger.js";
 import { type Incident, type NewIncident, type Severity, saveIncident } from "../repositories/incident.repository.js";
 import { getBaseline, getPingStats, type SavedPing } from "../repositories/ping.repository.js";
 import { HTTPBIN_URL, INCIDENT_MIN_SAMPLES, SEVERITY_THRESHOLDS } from "../config/constants.js";
-import { callsLeft, recordCall } from "./llmBudget.service.js";
+import { recordCall, takeSlot } from "./llmBudget.service.js";
 
 // the rule from the brief: slower than 2x the average is an incident.
 // "average" here is the 24h median (see getBaseline), so past slow pings don't raise the bar.
@@ -73,7 +73,7 @@ export async function checkForIncident(ping: SavedPing): Promise<Incident | null
 	let report = templateReport(ping, avgMs);
 	let generatedBy: NewIncident["generatedBy"] = "template";
 
-	if (aiEnabled && (await callsLeft()) > 0) {
+	if (aiEnabled && takeSlot()) {
 		try {
 			report = await llmReport(ping, avgMs, severity);
 			generatedBy = "llm";

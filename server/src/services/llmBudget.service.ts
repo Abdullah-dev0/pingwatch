@@ -3,10 +3,28 @@ import { CHAT_CACHE_TTL_MS, HOURLY_LLM_CALL_LIMIT } from "../config/constants.js
 import { env } from "../config/env.js";
 import { costUsd } from "../lib/gemini.js";
 import { logger } from "../lib/logger.js";
-import { countCallsLastHour, getUsageTotals, type LlmCallKind, saveLlmCall } from "../repositories/llm.repository.js";
+import { getCallTimesLastHour, getUsageTotals, type LlmCallKind, saveLlmCall } from "../repositories/llm.repository.js";
 
-export async function callsLeft(): Promise<number> {
-	return Math.max(0, HOURLY_LLM_CALL_LIMIT - (await countCallsLastHour()));
+// When each Gemini call of the last hour started. Kept in memory, not read from the database per call,
+// so that "is there a slot?" and "take it" happen in one step with no await in between:
+// two requests arriving together can't both take the last slot. Works because there is one server process.
+let recentCalls: number[] = [];
+
+// calls made before a restart still count
+export async function loadRecentCalls(): Promise<void> {
+	recentCalls = await getCallTimesLastHour();
+}
+
+export function callsLeft(): number {
+	recentCalls = recentCalls.filter((startedAt) => startedAt > Date.now() - 3600_000);
+	return Math.max(0, HOURLY_LLM_CALL_LIMIT - recentCalls.length);
+}
+
+// call right before every Gemini call; false when the hour is full
+export function takeSlot(): boolean {
+	if (callsLeft() === 0) return false;
+	recentCalls.push(Date.now());
+	return true;
 }
 
 // one row per Gemini call; a failed log must not break the answer

@@ -3,8 +3,10 @@ import { env } from './config/env.js';
 import { initDb, pool } from './db/pool.js';
 import { logger } from './lib/logger.js';
 import { startPingJob } from './jobs/ping.job.js';
+import { loadRecentCalls } from './services/llmBudget.service.js';
 
 await initDb();
+await loadRecentCalls();
 
 const server = createApp().listen(env.PORT, () => {
   logger.info(`API listening on http://localhost:${env.PORT}`);

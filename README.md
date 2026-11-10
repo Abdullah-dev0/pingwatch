@@ -120,7 +120,7 @@ The chat uses the AI SDK's `useChat` hook, which handles streaming and message s
 | LLM | Gemini Flash (`gemini-3.8-flash`) | Cheap and fast enough for lookups over small data. The model is an env var |
 | LLM library | Vercel AI SDK (`ai`, `@ai-sdk/google`, `@ai-sdk/react`) | Tool loop, structured output and the streaming `useChat` hook out of the box. Switching provider is a one-line change |
 | Token counting | `@google/genai` | Only for `countTokens`, which the AI SDK doesn't have |
-| LLM rate limit | Count of `llm_usage` rows in the last hour | No extra library; survives restarts; the same table drives the cost display |
+| LLM rate limit | In-memory list of the last hour's calls, loaded from `llm_usage` on startup | No extra library; two requests at once can't both take the last slot; survives restarts; the same table drives the cost display |
 
 ## Database schema
 
@@ -296,7 +296,7 @@ npm run lint
 
 Not tested, to stay focused on the one core component: the API routes, SSE broadcasting, the rest of the React UI (chat, incidents) and the real database queries (would need a test Postgres).
 
-**AI part**: only the incident rule (`classify`: more than 2x the baseline, severity steps, no incident with fewer than 5 samples) has unit tests. It's the one piece of AI-feature logic that is pure and decides something on its own. The chat and reports were checked by hand against the real Gemini API (answers, tool calls, cache hit, usage rows); testing LLM output properly would need an eval set, which is out of scope here.
+**AI part**: only the incident rule (`classify`: more than 2x the baseline, severity steps, no incident with fewer than 5 samples) and the hourly limit (20 slots, then none until an hour has passed) have unit tests. They are the two pieces of AI-feature logic that decide something on their own. The chat and reports were checked by hand against the real Gemini API (answers, tool calls, cache hit, usage rows); testing LLM output properly would need an eval set, which is out of scope here.
 
 ## AI enhancement (Option B, LLM-powered insights)
 
@@ -338,7 +338,7 @@ Checks on `POST /api/chat`, in order:
 
 1. **Input limits**: question at most 500 characters, at most 50 messages accepted and only the **last 6 used**, and only their text (old tool results are dropped). The server doesn't store chats, so the browser sends the recent conversation with each question; the widget already sends only the last 6, but the server can't trust what a browser sends, so it checks again.
 2. **Cache**: a first question (no conversation before it) is cached for 5 minutes, which is how often new data arrives. A cache hit uses **no** LLM call and doesn't count towards the limit. Follow-ups aren't cached because their answer depends on the conversation.
-3. **Hourly limit**: the brief's 20 calls/hour, shared by chat and incident reports. Every Gemini call writes a row to `llm_usage`; before a call we count the rows from the last hour. Being in the database, the count survives restarts, and "the last hour" slides by itself, so nothing needs resetting. **Every Gemini call counts, not every question**: one question with tool calls is usually 2-3 calls, so the step cap is lowered to the calls left.
+3. **Hourly limit**: the brief's 20 calls/hour, shared by chat and incident reports. The server keeps the start times of the last hour's Gemini calls in a list in memory, and every call takes a slot from that list right before it runs. Checking and taking a slot is one step with no `await` in between, so two requests arriving at the same moment can't both take the last slot. Every call also writes a row to `llm_usage` (for the cost display), and on startup the list is loaded from those rows, so the count survives restarts. A slot frees up one hour after it was taken, so nothing needs resetting. **Every Gemini call counts, not every question**: one question with tool calls is usually 2-3 calls, so the step cap is lowered to the calls left.
 4. **Token count before the call**: Google's `countTokens` (`@google/genai`). The AI SDK has no pre-call counter, so this is the one place the Google SDK is used. Over 4,000 input tokens is refused. Counting is a separate, free endpoint: it doesn't run the model and doesn't count towards the hourly limit. If it fails, the size check is skipped (the hourly limit still caps the cost).
 
 **Fallback when over the limit**: the chat answers with a fixed message ("used its hourly limit, back within the hour") streamed like a normal answer, so the widget handles it the same way. Incidents get the template report.
@@ -408,6 +408,7 @@ All six answers were correct and used sensible tools and time ranges. `low` was 
 
 - **Offset pagination**: a new ping shifts every row down by one, so in rare cases a row repeats when you move from page 2 to 3. Fine at one ping per 5 minutes. Live updates only touch page 1, so the page you're reading never jumps.
 - **In-memory SSE clients**: running more than one server instance would need Redis pub/sub to broadcast across them.
+- **In-memory LLM limit**: the hourly limit is counted inside the one server process. With more than one instance, each would allow 20, so the check would have to move into Postgres behind a lock.
 - **Browser connection limit**: over HTTP/1.1 a browser allows 6 connections per domain, and each open tab keeps one for SSE. Not an issue over HTTP/2 in production.
 - **No data retention**: the table grows forever (~288 rows a day).
 - **Cloudflare proxy is off**: the VM's IP is public and has no DDoS shield in front of it. Turning the proxy on would only help if the firewall also accepted traffic from Cloudflare's IPs alone, and SSE would need a heartbeat to survive Cloudflare's 100 s idle timeout. Not worth it for a public demo with no private data; the LLM cost is already capped by the hourly limit.

@@ -4,7 +4,7 @@ import { HTTPBIN_URL, MAX_CHAT_STEPS, MAX_PINGS_PER_LOOKUP, PING_TIMEOUT_MS } fr
 import { env } from "../config/env.js";
 import { geminiOptions, model } from "../lib/gemini.js";
 import { findPings, getPingStats } from "../repositories/ping.repository.js";
-import { recordCall } from "./llmBudget.service.js";
+import { recordCall, takeSlot } from "./llmBudget.service.js";
 
 // "every 5 minutes", or seconds when the interval is shorter than a minute
 const ms = env.PING_INTERVAL_MS;
@@ -84,15 +84,18 @@ export async function streamChatAnswer({ messages, timezone, stepsAllowed, onAns
 		// last allowed step: no more tools, so the model has to write its answer.
 		// Gemini ignores toolChoice "none" alone after a few tool calls (the SDK then throws
 		// ToolChoiceViolationError), so it also gets an explicit instruction.
-		prepareStep: ({ stepNumber, messages }) =>
-			stepNumber === maxSteps - 1
+		prepareStep: ({ stepNumber, messages }) => {
+			// every step is one Gemini call, so every step takes a slot of the hourly limit first
+			if (!takeSlot()) throw new Error("Hourly LLM call limit reached"); // other requests took the last slots
+
+			return stepNumber === maxSteps - 1
 				? {
 						activeTools: [],
 						toolChoice: "none",
 						messages: [...messages, { role: "user", content: FINAL_STEP_INSTRUCTION }],
 					}
-				: undefined,
-		// every step is one Gemini call, so every step counts towards the hourly limit
+				: undefined;
+		},
 		onStepEnd: ({ usage }) => recordCall("chat", usage),
 		onEnd: ({ text }) => {
 			if (text) onAnswer(text);

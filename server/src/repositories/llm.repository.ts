@@ -10,17 +10,20 @@ export interface LlmCall {
 }
 
 export async function saveLlmCall(call: LlmCall): Promise<void> {
-	await pool.query(
-		"INSERT INTO llm_usage (kind, input_tokens, output_tokens, cost_usd) VALUES ($1, $2, $3, $4)",
-		[call.kind, call.inputTokens, call.outputTokens, call.costUsd],
-	);
+	await pool.query("INSERT INTO llm_usage (kind, input_tokens, output_tokens, cost_usd) VALUES ($1, $2, $3, $4)", [
+		call.kind,
+		call.inputTokens,
+		call.outputTokens,
+		call.costUsd,
+	]);
 }
 
-export async function countCallsLastHour(): Promise<number> {
-	const { rows } = await pool.query<{ count: number }>(
-		"SELECT count(*)::int AS count FROM llm_usage WHERE created_at > now() - interval '1 hour'",
+// when the calls of the last hour were made (read once, on startup)
+export async function getCallTimesLastHour(): Promise<number[]> {
+	const { rows } = await pool.query<{ created_at: Date }>(
+		"SELECT created_at FROM llm_usage WHERE created_at > now() - interval '1 hour'",
 	);
-	return rows[0]!.count;
+	return rows.map((row) => row.created_at.getTime());
 }
 
 export interface UsageTotals {
