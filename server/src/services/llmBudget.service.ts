@@ -1,13 +1,12 @@
 import type { LanguageModelUsage } from "ai";
+import { CHAT_CACHE_TTL_MS, HOURLY_LLM_CALL_LIMIT } from "../config/constants.js";
 import { env } from "../config/env.js";
 import { costUsd } from "../lib/gemini.js";
 import { logger } from "../lib/logger.js";
 import { countCallsLastHour, getUsageTotals, type LlmCallKind, saveLlmCall } from "../repositories/llm.repository.js";
 
-export const HOURLY_LIMIT = 20; // from the brief: max 20 LLM calls per hour
-
 export async function callsLeft(): Promise<number> {
-	return Math.max(0, HOURLY_LIMIT - (await countCallsLastHour()));
+	return Math.max(0, HOURLY_LLM_CALL_LIMIT - (await countCallsLastHour()));
 }
 
 // one row per Gemini call; a failed log must not break the answer
@@ -20,11 +19,10 @@ export async function recordCall(kind: LlmCallKind, usage: LanguageModelUsage): 
 }
 
 export async function getUsage() {
-	return { ...(await getUsageTotals()), limit: HOURLY_LIMIT, model: env.GEMINI_MODEL };
+	return { ...(await getUsageTotals()), limit: HOURLY_LLM_CALL_LIMIT, model: env.GEMINI_MODEL };
 }
 
-// --- cache: same first question within 5 min = same answer, no Gemini call ---
-// 5 minutes because that's how often new data arrives.
+// --- cache: same first question within the TTL = same answer, no Gemini call ---
 // No size cap needed: the hourly limit means at most ~20 new answers an hour.
 const cache = new Map<string, { answer: string; expiresAt: number }>();
 
@@ -34,5 +32,5 @@ export function getCachedAnswer(question: string): string | undefined {
 }
 
 export function cacheAnswer(question: string, answer: string): void {
-	cache.set(question.trim().toLowerCase(), { answer, expiresAt: Date.now() + 5 * 60 * 1000 });
+	cache.set(question.trim().toLowerCase(), { answer, expiresAt: Date.now() + CHAT_CACHE_TTL_MS });
 }

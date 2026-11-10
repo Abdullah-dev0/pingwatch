@@ -1,8 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
+import { PAGE_SIZE } from "../lib/constants";
 import type { PingsPage } from "../types/ping";
-
-export const PAGE_SIZE = 10;
 
 export function usePings(page: number) {
 	return useQuery({

@@ -1,5 +1,4 @@
-// set VITE_API_URL for production builds
-export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
+import { API_URL } from './constants'
 
 export async function apiGet<T>(path: string): Promise<T> {
   const response = await fetch(`${API_URL}${path}`)

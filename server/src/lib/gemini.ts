@@ -1,11 +1,17 @@
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createGoogleGenerativeAI, type GoogleLanguageModelOptions } from "@ai-sdk/google";
 import { GoogleGenAI } from "@google/genai";
+import { THINKING_LEVEL } from "../config/constants.js";
 import { env } from "../config/env.js";
 
 export const aiEnabled = Boolean(env.GEMINI_API_KEY);
 
 // used for chat and incident reports (through the Vercel AI SDK)
 export const model = createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY })(env.GEMINI_MODEL);
+
+// passed as providerOptions on every Gemini call
+export const geminiOptions = {
+	google: { thinkingConfig: { thinkingLevel: THINKING_LEVEL } } satisfies GoogleLanguageModelOptions,
+};
 
 // the AI SDK has no "count tokens before the call", so we use Google's own SDK for that one thing
 const genai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY ?? "" });

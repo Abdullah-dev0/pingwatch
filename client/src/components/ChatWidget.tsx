@@ -1,23 +1,18 @@
 import { useChat } from "@ai-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
-import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { API_URL } from "../lib/api";
+import { API_URL, CHAT_HISTORY_MESSAGES, CHAT_SUGGESTIONS, MAX_QUESTION_CHARS } from "../lib/constants";
+import { toolsRunning } from "../lib/chat";
 import { ToolSteps } from "./ToolSteps";
-
-const SUGGESTIONS = [
-	"What were the slowest response times today?",
-	"Summarize any issues in the last 24 hours",
-	"Why did response time spike in the last hour?",
-];
 
 const transport = new DefaultChatTransport({
 	api: `${API_URL}/api/chat`,
-	// the server doesn't store chats, so we send the conversation, but only the last 6 messages:
+	// the server doesn't store chats, so we send the conversation, but only the last few messages:
 	// that's all the server uses, and a long chat would otherwise hit its 50-message limit
 	prepareSendMessagesRequest: ({ messages }) => ({
 		body: {
-			messages: messages.slice(-6),
+			messages: messages.slice(-CHAT_HISTORY_MESSAGES),
 			// so "2pm" means 2pm for this user, not for the server
 			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 		},
@@ -38,7 +33,10 @@ export function ChatWidget() {
 
 	return (
 		<div className="fixed right-4 bottom-4 z-10 flex flex-col items-end gap-3">
-			{open && <ChatPanel onClose={() => setOpen(false)} />}
+			{/* hidden, not removed: the conversation lives in ChatPanel, so removing it would erase the chat */}
+			<div className={open ? "" : "hidden"}>
+				<ChatPanel open={open} onClose={() => setOpen(false)} />
+			</div>
 			<button
 				type="button"
 				onClick={() => setOpen(!open)}
@@ -50,7 +48,7 @@ export function ChatWidget() {
 	);
 }
 
-function ChatPanel({ onClose }: { onClose: () => void }) {
+function ChatPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
 	const queryClient = useQueryClient();
 	const { messages, sendMessage, status, stop, error } = useChat({
 		transport,
@@ -62,10 +60,11 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
 	const busy = status === "submitted" || status === "streaming";
 	const bottom = useRef<HTMLDivElement>(null);
 
-	// keep the newest message in view. Braces matter: an effect may only return a clean-up function
+	// keep the newest message in view, also when the chat is reopened.
+	// Braces matter: an effect may only return a clean-up function
 	useEffect(() => {
-		bottom.current?.scrollIntoView({ block: "end" });
-	}, [messages, status]);
+		if (open) bottom.current?.scrollIntoView({ block: "end" });
+	}, [messages, status, open]);
 
 	function ask(text: string) {
 		if (!text.trim() || busy) return;
@@ -108,7 +107,7 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
 						<p className="font-medium">How can I help?</p>
 						<p className="mt-1 mb-4 text-xs text-zinc-500">Ask about response times, failures or spikes.</p>
 						<div className="flex w-full flex-col gap-2">
-							{SUGGESTIONS.map((s) => (
+							{CHAT_SUGGESTIONS.map((s) => (
 								<button
 									key={s}
 									type="button"
@@ -164,7 +163,7 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
 					<input
 						value={input}
 						onChange={(e) => setInput(e.target.value)}
-						maxLength={500}
+						maxLength={MAX_QUESTION_CHARS}
 						placeholder="Ask anything about the pings…"
 						aria-label="Question"
 						className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-400"
@@ -197,10 +196,6 @@ function ChatPanel({ onClose }: { onClose: () => void }) {
 
 function textOf(message: UIMessage): string {
 	return message.parts.map((p) => (p.type === "text" ? p.text : "")).join("");
-}
-
-function toolsRunning(message: UIMessage): boolean {
-	return message.parts.some((p) => isToolUIPart(p) && (p.state === "input-streaming" || p.state === "input-available"));
 }
 
 function Avatar() {

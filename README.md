@@ -365,6 +365,20 @@ What keeps it low, biggest effect first:
 4. **Trimmed history**: last 6 messages, text only. Without this, every follow-up resends all earlier tool results.
 5. **The cache** for repeated first questions (the suggested questions are the same for everyone).
 6. **Stable prompt prefix**: the fixed instructions come first and the current time last, so Gemini's automatic (implicit) caching can reuse the prefix.
+7. **Thinking level `low`** (`THINKING_LEVEL` in `server/src/config/constants.ts`), measured below.
+
+#### Thinking level: measured
+
+Gemini 3 "thinks" before answering, and thinking is billed as output tokens. It was the main cause of 10-20 s answers, so the three suggested questions were asked once at the default level and once at `low` (same data, empty cache, `gemini-3.8-flash`):
+
+| Question | Time | Gemini calls | Tokens | Cost |
+|---|---|---|---|---|
+| Slowest response times today | 14.1 → 10.7 s | 2 → 2 | 4,118 → 3,246 | $0.0046 → $0.0032 |
+| Summarize issues, last 24h | 12.3 → 9.1 s | 2 → 3 | 3,775 → 4,376 | $0.0037 → $0.0045 |
+| Why did it spike, last hour | 20.8 → 15.5 s | 2 → 3 | 5,514 → 6,602 | $0.0070 → $0.0060 |
+| **Total** | **47.2 → 35.3 s (-25%)** | **6 → 8** | 13,407 → 14,224 | **$0.0152 → $0.0136 (-10%)** |
+
+All six answers were correct and used sensible tools and time ranges. `low` was chosen because waiting time is what users notice. The cost of that choice: with less planning, the model sometimes takes one more tool round, so two questions used 3 calls instead of 2. That uses the 20-calls-an-hour limit a little faster (about 7-8 questions an hour instead of 10). One run per question is a small sample; LLM timings vary from run to run, so these numbers show a direction, not a precise saving. `minimal` was not used: the model still has to turn "today" or "2pm" into exact timestamps in the user's timezone, and that's where too little thinking would give wrong answers that look right.
 
 ### AI-specific trade-offs
 

@@ -10,7 +10,9 @@ import { button, card } from "./ui/styles";
 export function PingsTable() {
 	// page lives in the URL (?page=3) so it can be shared; anything that isn't a whole number >= 1 means page 1
 	const [pageParam, setPageParam] = useSearchParam("page");
-	const page = Math.max(1, Number.parseInt(pageParam ?? "", 10) || 1);
+	// (huge numbers too: the API rejects them, so they'd show an error instead of a page)
+	const pageNumber = Number(pageParam);
+	const page = Number.isSafeInteger(pageNumber) && pageNumber >= 1 ? pageNumber : 1;
 	const [openId, setOpenId] = useState<number | null>(null);
 	const { data, isPending, isError, error, refetch, isPlaceholderData } = usePings(page);
 

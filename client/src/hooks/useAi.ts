@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api";
+import { AI_USAGE_REFRESH_MS } from "../lib/constants";
 import type { AiUsage, Incident } from "../types/ai";
 
 // refreshed by useLivePings when the server sends an "incident" event
@@ -12,6 +13,6 @@ export function useAiUsage() {
 		queryKey: ["ai-usage"],
 		queryFn: () => apiGet<AiUsage>("/api/ai/usage"),
 		// calls drop out of the 1-hour window over time, so poll gently
-		refetchInterval: 60_000,
+		refetchInterval: AI_USAGE_REFRESH_MS,
 	});
 }

@@ -5,10 +5,12 @@ import { aiEnabled, countTokens } from "../lib/gemini.js";
 import { logger } from "../lib/logger.js";
 import { streamChatAnswer } from "../services/chat.service.js";
 import { cacheAnswer, callsLeft, getCachedAnswer, getUsage } from "../services/llmBudget.service.js";
-
-const MAX_QUESTION_CHARS = 500;
-const MAX_HISTORY_MESSAGES = 6;
-const MAX_INPUT_TOKENS = 4000;
+import {
+	MAX_HISTORY_MESSAGES,
+	MAX_INPUT_TOKENS,
+	MAX_MESSAGES_ACCEPTED,
+	MAX_QUESTION_CHARS,
+} from "../config/constants.js";
 
 // useChat sends the whole conversation; anyone could send a fake huge one, so check it
 const chatBody = z.object({
@@ -21,7 +23,7 @@ const chatBody = z.object({
 			}),
 		)
 		.min(1)
-		.max(50),
+		.max(MAX_MESSAGES_ACCEPTED),
 	timezone: z.string().max(64).default("UTC"),
 });
 

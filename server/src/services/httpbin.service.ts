@@ -1,5 +1,4 @@
-export const HTTPBIN_URL = "https://httpbin.org/anything";
-const TIMEOUT_MS = 10_000;
+import { HTTPBIN_URL, PING_TIMEOUT_MS } from "../config/constants.js";
 
 export interface PingResult {
 	ok: boolean;
@@ -29,7 +28,7 @@ export async function callHttpbin(): Promise<PingResult> {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(requestPayload),
-			signal: AbortSignal.timeout(TIMEOUT_MS),
+			signal: AbortSignal.timeout(PING_TIMEOUT_MS),
 		});
 
 		const responseBody = await response.json().catch(() => null);

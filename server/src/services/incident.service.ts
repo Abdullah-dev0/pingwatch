@@ -1,23 +1,21 @@
 import { generateText, Output } from "ai";
 import { z } from "zod";
-import { aiEnabled, countTokens, model } from "../lib/gemini.js";
+import { aiEnabled, countTokens, geminiOptions, model } from "../lib/gemini.js";
 import { logger } from "../lib/logger.js";
 import { type Incident, type NewIncident, type Severity, saveIncident } from "../repositories/incident.repository.js";
 import { getBaseline, getPingStats, type SavedPing } from "../repositories/ping.repository.js";
-import { HTTPBIN_URL } from "./httpbin.service.js";
+import { HTTPBIN_URL, INCIDENT_MIN_SAMPLES, SEVERITY_THRESHOLDS } from "../config/constants.js";
 import { callsLeft, recordCall } from "./llmBudget.service.js";
-
-// fewer samples than this and the average means little (e.g. right after the first deploy)
-const MIN_SAMPLES = 5;
 
 // the rule from the brief: slower than 2x the average is an incident.
 // Pure function (no database, no LLM) so it's easy to test.
 export function classify(responseTimeMs: number, avgMs: number | null, samples: number): Severity | null {
-	if (avgMs === null || avgMs <= 0 || samples < MIN_SAMPLES) return null;
+	// too few samples and the average means little (e.g. right after the first deploy)
+	if (avgMs === null || avgMs <= 0 || samples < INCIDENT_MIN_SAMPLES) return null;
 	const ratio = responseTimeMs / avgMs;
-	if (ratio > 4) return "high";
-	if (ratio > 3) return "medium";
-	if (ratio > 2) return "low";
+	if (ratio > SEVERITY_THRESHOLDS.high) return "high";
+	if (ratio > SEVERITY_THRESHOLDS.medium) return "medium";
+	if (ratio > SEVERITY_THRESHOLDS.low) return "low";
 	return null;
 }
 
@@ -53,7 +51,12 @@ Root causes must be plausible for a public echo service called over the internet
 	// the prompt has a fixed shape, so this is for the log, not a limit check
 	logger.info({ inputTokens: await countTokens(prompt) }, "Generating incident report");
 
-	const { output, usage } = await generateText({ model, prompt, output: Output.object({ schema: reportSchema }) });
+	const { output, usage } = await generateText({
+		model,
+		prompt,
+		output: Output.object({ schema: reportSchema }),
+		providerOptions: geminiOptions,
+	});
 	await recordCall("incident", usage);
 	return output;
 }

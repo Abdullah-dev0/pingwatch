@@ -1,5 +1,6 @@
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 import { useState } from "react";
+import { toolsRunning } from "../lib/chat";
 import { formatTime } from "../lib/format";
 
 // what the server's tools return (getStats / findPings in chat.service.ts)
@@ -24,7 +25,7 @@ export function ToolSteps({ message }: { message: UIMessage }) {
 	const steps = message.parts.filter(isToolUIPart) as ToolPart[];
 	if (steps.length === 0) return null;
 
-	const running = steps.some((s) => s.state === "input-streaming" || s.state === "input-available");
+	const running = toolsRunning(message);
 
 	return (
 		<div className="mb-2">
@@ -61,33 +62,58 @@ function describe(step: ToolPart): string {
 	const input = step.input as Partial<PingsInput> | undefined;
 	const range = input?.from && input.to ? ` · ${formatTime(input.from)} – ${formatTime(input.to)}` : "";
 
-	if (getToolName(step) === "getStats") return `Stats${range}`;
-	if (!input?.sortBy) return "Searching pings";
-	const one = input.limit === 1;
-	const what = `${input.onlyFailures ? "failed " : ""}${one ? "ping" : "pings"}`;
-	const order = input.sortBy === "newest" ? "latest" : input.sortBy;
-	// "slowest ping" / "5 slowest pings"
-	return `${one ? "" : (input.limit ?? "")} ${order} ${what}${range}`.trim();
+	switch (getToolName(step)) {
+		case "getStats":
+			return `Stats${range}`;
+
+		default: {
+			// findPings: the input streams in, so it may not have arrived yet
+			if (!input?.sortBy) return "Searching pings";
+			const one = input.limit === 1;
+			const what = `${input.onlyFailures ? "failed " : ""}${one ? "ping" : "pings"}`;
+			const order = input.sortBy === "newest" ? "latest" : input.sortBy;
+			// "slowest ping" / "5 slowest pings"
+			return `${one ? "" : (input.limit ?? "")} ${order} ${what}${range}`.trim();
+		}
+	}
 }
 
 // what came back: "21 pings, 0 failed, avg 720 ms" / "5 found"
 function result(step: ToolPart): string {
-	if (step.state === "output-error") return "Lookup failed";
-	if (step.state !== "output-available") return "Running…";
+	switch (step.state) {
+		case "output-error":
+			return "Lookup failed";
 
-	if (getToolName(step) === "getStats") {
-		const s = step.output as StatsOutput;
-		return `${s.total} pings, ${s.failures} failed${s.avgMs === null ? "" : `, avg ${s.avgMs} ms`}`;
+		case "output-available": {
+			if (getToolName(step) === "getStats") {
+				const s = step.output as StatsOutput;
+				return `${s.total} pings, ${s.failures} failed${s.avgMs === null ? "" : `, avg ${s.avgMs} ms`}`;
+			}
+			const rows = step.output as unknown[];
+			return rows.length === 0 ? "None found" : `${rows.length} found`;
+		}
+
+		default:
+			// still streaming the input or waiting for the server
+			return "Running…";
 	}
-	const rows = step.output as unknown[];
-	return rows.length === 0 ? "None found" : `${rows.length} found`;
 }
 
 function StatusDot({ state }: { state: ToolPart["state"] }) {
-	const color =
-		state === "output-available" ? "bg-emerald-500" : state === "output-error" ? "bg-red-500" : "bg-zinc-400 animate-pulse";
+	// green = done, red = failed, grey pulsing = still running
+	let color: string;
+	switch (state) {
+		case "output-available":
+			color = "bg-emerald-500";
+			break;
+		case "output-error":
+			color = "bg-red-500";
+			break;
+		default:
+			color = "bg-zinc-400 animate-pulse";
+	}
 	// sits on the timeline line to the left
-	return <span className={`absolute top-1 -left-[1.3rem] size-2 rounded-full ring-2 ring-white dark:ring-zinc-900 ${color}`} />;
+	return <span className={`absolute top-1 left-[-1.3rem] size-2 rounded-full ring-2 ring-white dark:ring-zinc-900 ${color}`} />;
 }
 
 function SmallSpinner() {

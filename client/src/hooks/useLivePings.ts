@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { API_URL } from "../lib/api";
+import { API_URL } from "../lib/constants";
 import type { Ping, PingsPage } from "../types/ping";
 
 export type ConnectionStatus = "connecting" | "live" | "offline";
