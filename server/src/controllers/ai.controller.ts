@@ -92,7 +92,8 @@ export async function postChat(req: Request, res: Response) {
 	}
 
 	const tokens = await countTokens(messages.map(textOf).join("\n"));
-	if (tokens > MAX_INPUT_TOKENS) {
+
+	if (tokens !== null && tokens > MAX_INPUT_TOKENS) {
 		return replyWith(res, "This conversation is too long for me. Please start a new chat.");
 	}
 

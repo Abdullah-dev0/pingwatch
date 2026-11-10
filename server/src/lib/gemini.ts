@@ -10,19 +10,15 @@ export const model = createGoogleGenerativeAI({ apiKey: env.GEMINI_API_KEY })(en
 // the AI SDK has no "count tokens before the call", so we use Google's own SDK for that one thing
 const genai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY ?? "" });
 
-export async function countTokens(text: string): Promise<number> {
+// a separate, free Gemini endpoint: it only counts, it doesn't run the model.
+// null if counting failed; callers then skip the size check (the hourly limit still caps cost).
+export async function countTokens(text: string): Promise<number | null> {
 	try {
 		const { totalTokens } = await genai.models.countTokens({ model: env.GEMINI_MODEL, contents: text });
-		return totalTokens ?? estimateTokens(text);
+		return totalTokens ?? null;
 	} catch {
-		// counting is a safety check, not worth failing the request over
-		return estimateTokens(text);
+		return null;
 	}
-}
-
-// rough rule of thumb: ~4 characters per token for English text
-function estimateTokens(text: string): number {
-	return Math.ceil(text.length / 4);
 }
 
 export function costUsd(inputTokens: number, outputTokens: number): number {

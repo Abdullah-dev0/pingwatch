@@ -13,8 +13,15 @@ const SUGGESTIONS = [
 
 const transport = new DefaultChatTransport({
 	api: `${API_URL}/api/chat`,
-	// so "2pm" means 2pm for this user, not for the server
-	body: { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+	// the server doesn't store chats, so we send the conversation, but only the last 6 messages:
+	// that's all the server uses, and a long chat would otherwise hit its 50-message limit
+	prepareSendMessagesRequest: ({ messages }) => ({
+		body: {
+			messages: messages.slice(-6),
+			// so "2pm" means 2pm for this user, not for the server
+			timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+		},
+	}),
 });
 
 // the server sends { error: { message } } for 400/429; show that text instead of raw JSON
