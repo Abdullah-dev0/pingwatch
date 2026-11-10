@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import cors from 'cors';
 import express, { type Express } from 'express';
 import morgan from 'morgan';
@@ -15,6 +17,13 @@ export function createApp(): Express {
   // sent through our logger so all logs look the same
   app.use(morgan('tiny', { stream: { write: (line) => logger.info(line.trim()) } }));
   app.use('/api', apiRouter);
+
+  // in the Docker image the built React app sits next to the server, so one process serves both
+  const clientDist = path.join(import.meta.dirname, '../../client/dist');
+  if (existsSync(clientDist)) {
+    app.use(express.static(clientDist));
+    app.get('/{*splat}', (_req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+  }
   app.use(errorHandler);
 
   return app;

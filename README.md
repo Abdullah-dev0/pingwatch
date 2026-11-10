@@ -15,20 +15,52 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 
 ## Architecture
 
-```
-             every 5 min
-   ping.job ──────────────► monitor.service.runCheck()
-                               │
-                               ├─► httpbin.service   POST httpbin.org/anything
-                               ├─► ping.repository   INSERT into Postgres
-                               └─► sse.service       push to open browser tabs
-                                                          │
-   Browser (React)                                        │ SSE: GET /api/pings/stream
-     ├─ GET /api/pings?page=1  ◄── history ───────────────┤
-     └─ EventSource            ◄── new pings ─────────────┘
+```mermaid
+flowchart LR
+    subgraph Server["🖥️ Server · Node + Express"]
+        Timer["⏰ ping.job<br/>every 5 min"]
+        Check["⚙️ monitor.service<br/>runCheck()"]
+        SSE["📡 sse.service<br/>list of open tabs"]
+        API["🌐 REST API<br/>GET /api/pings"]
+    end
+
+    Httpbin["☁️ httpbin.org<br/>/anything"]
+    DB[("🐘 Postgres")]
+
+    subgraph Browser["💻 Browser · React"]
+        UI["📊 Dashboard"]
+    end
+
+    Timer -->|"1 · start a check"| Check
+    Check -->|"2 · POST random JSON"| Httpbin
+    Httpbin -.->|"response"| Check
+    Check -->|"3 · save result"| DB
+    Check -->|"4 · new ping"| SSE
+    SSE ==>|"5 · live push"| UI
+    UI -->|"on load: history"| API
+    API -->|"read rows"| DB
+
+    classDef job fill:#fde68a,stroke:#b45309,color:#1f2937
+    classDef core fill:#bfdbfe,stroke:#1d4ed8,color:#1f2937
+    classDef live fill:#bbf7d0,stroke:#15803d,color:#1f2937
+    classDef ext fill:#e5e7eb,stroke:#4b5563,color:#1f2937
+    class Timer job
+    class Check,API core
+    class SSE,UI live
+    class Httpbin,DB ext
 ```
 
-Two deployments: the API (one long-running Node process) and the React app (static files). The browser calls the API directly; the API allows the frontend's origin via CORS.
+**How to read it**
+
+1. Every 5 minutes the timer starts a check.
+2. The server sends a random JSON body to httpbin and waits for the answer (or a timeout).
+3. The result is saved in Postgres, even when it failed.
+4. The saved ping goes to `sse.service`, which keeps a list of open browser tabs.
+5. Every open tab gets it straight away, and the table updates without a refresh.
+
+When the page first opens, it loads older pings through the REST API (`GET /api/pings`). After that, new ones arrive through the live connection (SSE).
+
+One deployment: a single Docker image where Express serves both the API and the built React app (see Deployment).
 
 ### Backend layers
 
@@ -140,11 +172,14 @@ The table is created automatically on first start.
 
 ## Deployment
 
-Not deployed yet. Plan:
+One Docker image runs everything: Express serves the API under `/api` and the built React app on the same port. Same origin means no CORS setup and no `VITE_API_URL`.
 
-1. **API** on Railway (or any VPS): build with `npm run build -w server`, start with `npm run start -w server`. Set `DATABASE_URL`, `CORS_ORIGIN` (the frontend URL) and `NODE_ENV=production`.
-2. **Frontend** as static files: `VITE_API_URL=<api url> npm run build -w client`, then serve `client/dist`.
-3. If the host sleeps when idle, point a free uptime pinger at `/api/health`, otherwise the scheduled pings pause.
+```bash
+docker build -t http-monitor .
+docker run -d --restart unless-stopped -p 3001:3001 -e DATABASE_URL="<neon url>" http-monitor
+```
+
+The host must keep the process running (a VM, not a scale-to-zero platform), because the 5 minute ping job and the SSE connections live inside it.
 
 ## Testing strategy
 
