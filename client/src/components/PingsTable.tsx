@@ -3,6 +3,7 @@ import { usePings } from "../hooks/usePings";
 import { useSearchParam } from "../hooks/useSearchParam";
 import { Pagination } from "./Pagination";
 import { PingRow } from "./PingRow";
+import { PingsTableHead } from "./PingsTableHead";
 import { TableSkeleton } from "./TableSkeleton";
 import { Message } from "./ui/Message";
 import { button, card } from "./ui/styles";
@@ -54,15 +55,7 @@ export function PingsTable() {
 				{/* scrolls sideways on small screens */}
 				<div className="overflow-x-auto">
 					<table className="w-full text-sm">
-						<thead className="border-b border-zinc-200 bg-zinc-50 text-xs whitespace-nowrap text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/50">
-							<tr>
-								<th className="px-4 py-3 text-left font-medium">Time</th>
-								<th className="px-4 py-3 text-left font-medium">Status</th>
-								<th className="px-4 py-3 text-right font-medium">Response time</th>
-								<th className="px-4 py-3 text-left font-medium">Payload</th>
-								<th className="w-10 px-4 py-3" />
-							</tr>
-						</thead>
+						<PingsTableHead />
 						<tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
 							{data.items.map((ping) => (
 								<PingRow
