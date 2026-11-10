@@ -328,7 +328,7 @@ useChat (React) ──POST /api/chat──► checks (see below) ──► strea
 
 ### How incident reports work
 
-After each ping is saved: if it succeeded and took **more than 2x the median of successful pings in the last 24h** (needs at least 5 samples), an incident is opened. The median is used instead of the mean so that earlier slow pings don't raise the bar and hide later ones. Severity: low > 2x, medium > 3x, high > 4x.
+After each ping is saved: if it succeeded and took **more than 2x the median of successful pings in the last 24h** (needs at least 5 samples), an incident is opened. The brief says "2x average"; the median is used instead of the mean so that earlier slow pings don't raise the bar and hide later ones (see [Assumptions](#assumptions)). Severity: low > 2x, medium > 3x, high > 4x.
 
 The detection is plain maths; only the written report uses the LLM: one `generateText` call with a zod schema (structured output), given the slow ping and the last hour's stats. If the hourly limit is used up, or Gemini fails, a **template report** is saved instead, so an incident is never lost because of the LLM. The browser gets an `incident` SSE event and refreshes the tab.
 
