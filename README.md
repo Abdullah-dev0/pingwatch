@@ -63,7 +63,7 @@ flowchart TD
 6. The React dashboard displays the latest results.
 7. The REST API loads historical results from PostgreSQL.
 8. After each saved ping, the incident check compares it with the 24h median. If it's more than 2x slower, Gemini writes a report, it's saved, and browsers get an `incident` event.
-9. The chat sends questions to the Chat API, which checks the limits and lets Gemini call two read-only database queries (tools) before answering.
+9. The chat sends questions to the Chat API, which checks the limits and lets Gemini call three read-only database queries (tools) before answering.
 
 When the page first opens, it loads older pings through the REST API (`GET /api/pings`). After that, new ones arrive through the live connection (SSE).
 
@@ -304,7 +304,7 @@ Not tested, to stay focused on the one core component: the API routes, SSE broad
 
 | Brief item | Status |
 |---|---|
-| 1. Chat over the monitoring data, "constructs database queries" | ✅ The model picks filters for 2 fixed queries (tools); it never writes SQL |
+| 1. Chat over the monitoring data, "constructs database queries" | ✅ The model picks filters for 3 fixed queries (tools); it never writes SQL |
 | 2. Automatic incident reports (> 2x average), stored, "Incidents" tab | ✅ |
 | 3. Smart response analysis of httpbin payloads | ❌ Cut on purpose, see below |
 | 4. Cost controls: token counting, cache, 20 calls/hour, fallback, cost display | ✅ |
@@ -317,11 +317,11 @@ Not tested, to stay focused on the one core component: the API routes, SSE broad
 useChat (React) ──POST /api/chat──► checks (see below) ──► streamText (AI SDK + Gemini)
                 ◄── streamed answer ─┘                         │  model calls tools, up to 5 steps
                                                                ▼
-                                          getStats(from, to)      findPings(from, to, onlyFailures, sortBy, limit)
+                                          getStats(from, to)   findPings(from, to, onlyFailures, sortBy, limit)   findIncidents(from, to)
                                                    └── fixed, parameterised SQL ──┘
 ```
 
-- **Tools instead of text-to-SQL.** Letting an LLM write SQL against a public endpoint is an injection risk and is hard to make correct. Two fixed queries with typed parameters (zod) cover the example questions: "slowest today" is `findPings(sortBy: slowest)`, "summarise the last 24h" is `getStats` plus `findPings(onlyFailures)`, "why the spike at 2pm" is both, around 2pm.
+- **Tools instead of text-to-SQL.** Letting an LLM write SQL against a public endpoint is an injection risk and is hard to make correct. Three fixed queries with typed parameters (zod) cover the example questions: "slowest today" is `findPings(sortBy: slowest)`, "summarise the last 24h" is `getStats` plus `findPings(onlyFailures)` plus `findIncidents`, "why the spike at 2pm" is all three, around 2pm.
 - **It's a small agent**: the model decides which tools to call and can call several before answering. The loop is capped at 5 steps, and on the last step tools are switched off so it has to answer.
 - **Timezone**: the browser sends its timezone, so "2pm" means the user's 2pm.
 - Tool results leave out request/response bodies: they cost tokens and don't help answer questions about timing.

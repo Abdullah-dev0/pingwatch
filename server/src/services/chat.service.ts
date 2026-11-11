@@ -3,6 +3,7 @@ import { z } from "zod";
 import { HTTPBIN_URL, MAX_CHAT_STEPS, MAX_PINGS_PER_LOOKUP, PING_TIMEOUT_MS } from "../config/constants.js";
 import { env } from "../config/env.js";
 import { geminiOptions, model } from "../lib/gemini.js";
+import { findIncidents } from "../repositories/incident.repository.js";
 import { findPings, getPingStats } from "../repositories/ping.repository.js";
 import { recordCall, takeSlot } from "./llmBudget.service.js";
 
@@ -19,6 +20,7 @@ A ping fails on a timeout (${PING_TIMEOUT_MS / 1000} s), a network error or a no
 Rules:
 - Use the tools to get data. Never guess numbers.
 - Pick the smallest time range that answers the question.
+- Questions about incidents, issues or spikes: also call findIncidents. "No failures" does not mean "no incidents".
 - Each tool call round costs money, so call the tools you need together in one round, not one by one.
 - For "why" or "spike" questions, make these calls together, then answer:
   getStats for the period asked, getStats for the 24 hours before the period asked as the baseline (so the spike is not in it),
@@ -61,6 +63,12 @@ const tools = {
 				.describe(`How many pings to return, at most ${MAX_PINGS_PER_LOOKUP}`),
 		}),
 		execute: (filter) => findPings(filter),
+	}),
+	findIncidents: tool({
+		description:
+			"Incidents in a time range: successful pings slower than 2x the 24h median, with severity and a short summary.",
+		inputSchema: z.object(timeRange),
+		execute: ({ from, to }) => findIncidents(from, to, MAX_PINGS_PER_LOOKUP),
 	}),
 };
 

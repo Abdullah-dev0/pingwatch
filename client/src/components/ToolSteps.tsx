@@ -3,7 +3,7 @@ import { useState } from "react";
 import { toolsRunning } from "../lib/chat";
 import { formatRange } from "../lib/format";
 
-// what the server's tools return (getStats / findPings in chat.service.ts)
+// what the server's tools return (getStats / findPings / findIncidents in chat.service.ts)
 interface StatsOutput {
 	total: number;
 	failures: number;
@@ -65,6 +65,9 @@ function describe(step: ToolPart): string {
 	switch (getToolName(step)) {
 		case "getStats":
 			return `Stats${range}`;
+
+		case "findIncidents":
+			return `Incidents${range}`;
 
 		default: {
 			// findPings: the input streams in, so it may not have arrived yet

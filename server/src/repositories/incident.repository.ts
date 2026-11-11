@@ -53,6 +53,16 @@ export async function saveIncident(incident: NewIncident): Promise<Incident> {
 	return rows[0]!;
 }
 
+// for the chat: incidents in a time range, newest first, without the long report fields
+export async function findIncidents(from: string, to: string, limit: number) {
+	const { rows } = await pool.query(
+		`SELECT created_at AS "createdAt", severity, response_time_ms AS "responseTimeMs", average_ms AS "medianMs", summary
+		FROM incidents WHERE created_at BETWEEN $1 AND $2 ORDER BY created_at DESC LIMIT $3`,
+		[from, to, limit],
+	);
+	return rows;
+}
+
 export async function listIncidents(limit: number): Promise<Incident[]> {
 	const { rows } = await pool.query<Incident>(
 		`SELECT ${COLUMNS} FROM incidents ORDER BY id DESC LIMIT $1`,
