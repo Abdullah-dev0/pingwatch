@@ -214,7 +214,7 @@ The tables are created automatically on first start.
 | `PING_INTERVAL_MS` | `300000` (5 min) | Set to `10000` locally to watch live updates quickly |
 | `GEMINI_API_KEY` | - | Optional. Without it the app runs normally; the chat says it isn't configured and incidents get the template report |
 | `GEMINI_MODEL` | `gemini-3.8-flash` | Any Gemini text model |
-| `GEMINI_INPUT_USD_PER_M` / `GEMINI_OUTPUT_USD_PER_M` | `0.3` / `2.5` | Price per 1M tokens, only for the cost display. Set them to the model's real price |
+| `GEMINI_INPUT_USD_PER_M` / `GEMINI_OUTPUT_USD_PER_M` | `0.75` / `3.75` | Price per 1M tokens, only for the cost display. The defaults are `gemini-3.8-flash`'s paid price until 31 Dec 2026; from 1 Jan 2027 it's `1.5` / `7.5` |
 | `NODE_ENV` | `development` | |
 
 **client/.env**
@@ -351,13 +351,13 @@ Measured locally with `gemini-3.8-flash`:
 
 | What | Gemini calls | Tokens | Cost* |
 |---|---|---|---|
-| One chat question (tools + answer) | 2-3 | ~2,500-3,000 | ~$0.0025 |
-| One incident report | 1 | ~160 in (prompt) + output | < $0.001 |
+| One chat question (tools + answer) | 2-3 | ~2,500-3,000 | ~$0.004-0.005 |
+| One incident report | 1 | ~160 in (prompt) + output | ~$0.001 |
 | Same question again within 5 min | 0 (cache) | 0 | $0 |
 
-*At the configured price of $0.30 / $2.50 per 1M input / output tokens. Gemini 3 models "think" before answering, and that thinking is billed as output tokens, which is why output is most of the cost.
+*At Google's paid price for `gemini-3.8-flash`: $0.75 / $3.75 per 1M input / output tokens, valid until 31 Dec 2026 ([pricing](https://aistudio.google.com/docs/pricing)). From 1 Jan 2027 the price doubles to $1.50 / $7.50, and so do all the costs here. Gemini 3 models "think" before answering, and that thinking is billed as output tokens, which is why output is most of the cost. On the free tier the real bill is $0; these numbers are what the same use costs on the paid tier.
 
-**Worst case**: all 20 calls used every hour, all day: about 20 x $0.0012 ≈ **$0.025 an hour, ~$0.60 a day, ~$18 a month**. That's the ceiling the rate limit buys. Real use will be far lower: incidents are rare, and most visitors ask one of the suggested questions, which hit the cache.
+**Worst case**: all 20 calls used every hour, all day. The measured questions below average about $0.003 a call, so 20 x $0.003 ≈ **$0.06 an hour, ~$1.40 a day, ~$42 a month**. That's the ceiling the rate limit buys. Real use will be far lower: incidents are rare, and most visitors ask one of the suggested questions, which hit the cache.
 
 What keeps it low, biggest effect first:
 
@@ -375,10 +375,12 @@ Gemini 3 "thinks" before answering, and thinking is billed as output tokens. It 
 
 | Question | Time | Gemini calls | Tokens | Cost |
 |---|---|---|---|---|
-| Slowest response times today | 14.1 → 10.7 s | 2 → 2 | 4,118 → 3,246 | $0.0046 → $0.0032 |
-| Summarize issues, last 24h | 12.3 → 9.1 s | 2 → 3 | 3,775 → 4,376 | $0.0037 → $0.0045 |
-| Why did it spike, last hour | 20.8 → 15.5 s | 2 → 3 | 5,514 → 6,602 | $0.0070 → $0.0060 |
-| **Total** | **47.2 → 35.3 s (-25%)** | **6 → 8** | 13,407 → 14,224 | **$0.0152 → $0.0136 (-10%)** |
+| Slowest response times today | 14.1 → 10.7 s | 2 → 2 | 4,118 → 3,246 | $0.0077 → $0.0055 |
+| Summarize issues, last 24h | 12.3 → 9.1 s | 2 → 3 | 3,775 → 4,376 | $0.0063 → $0.0076 |
+| Why did it spike, last hour | 20.8 → 15.5 s | 2 → 3 | 5,514 → 6,602 | $0.0114 → $0.0104 |
+| **Total** | **47.2 → 35.3 s (-25%)** | **6 → 8** | 13,407 → 14,224 | **$0.0253 → $0.0234 (-8%)** |
+
+Costs at $0.75 / $3.75 per 1M tokens. The runs were first priced at an older configured rate ($0.30 / $2.50); they were re-priced by working out each run's input/output split from its total tokens and its old cost, so they can be off by about $0.0001.
 
 All six answers were correct and used sensible tools and time ranges. `low` was chosen because waiting time is what users notice. The cost of that choice: with less planning, the model sometimes takes one more tool round, so two questions used 3 calls instead of 2. That uses the 20-calls-an-hour limit a little faster (about 7-8 questions an hour instead of 10). One run per question is a small sample; LLM timings vary from run to run, so these numbers show a direction, not a precise saving. `minimal` was not used: the model still has to turn "today" or "2pm" into exact timestamps in the user's timezone, and that's where too little thinking would give wrong answers that look right.
 
@@ -389,7 +391,7 @@ All six answers were correct and used sensible tools and time ranges. `low` was 
 - **One shared limit, no per-visitor limit**: the site is public with no login, so one visitor can use up the hour's 20 calls. They can't raise the cost above the cap, and incidents then fall back to the template report. A per-IP limit was tried and removed: IPs are weak identities (VPNs, shared networks), and it added a dependency and proxy setup for little gain at this scale.
 - **Chat and incidents share the 20**: a busy chat hour means incident reports use the template. Splitting the budget would avoid that, at the cost of one more rule to explain.
 - **Token counting is an extra round trip** (~100-200 ms) per question. It's free on Google's side and the brief asks for it; without the requirement, the usage reported after the call would be enough.
-- **The cost shown is an estimate**: it uses the configured price, not Google's bill.
+- **The cost shown is an estimate**: it uses the configured price, not Google's bill. Each call's cost is saved when the call is made, so a price change only affects new calls, and the configured price has to be updated by hand when Google changes it (next on 1 Jan 2027).
 - **The "why" answers are guesses**: the model only sees our measurements, not httpbin's servers. The prompt tells it to say so.
 
 ## Assumptions

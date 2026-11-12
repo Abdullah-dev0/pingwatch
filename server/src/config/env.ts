@@ -18,9 +18,10 @@ const envSchema = z.object({
 	// optional: without it the AI features answer with a 'not configured' message
 	GEMINI_API_KEY: z.string().optional(),
 	GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
-	// USD per 1M tokens, used for the cost display. Check https://ai.google.dev/gemini-api/docs/pricing
-	GEMINI_INPUT_USD_PER_M: z.coerce.number().min(0).default(0.3),
-	GEMINI_OUTPUT_USD_PER_M: z.coerce.number().min(0).default(2.5),
+	// USD per 1M tokens (paid tier), used for the cost display. Check https://aistudio.google.com/docs/pricing
+	// gemini-3.8-flash: 0.75 / 3.75 until 31 Dec 2026, then 1.5 / 7.5
+	GEMINI_INPUT_USD_PER_M: z.coerce.number().min(0).default(0.75),
+	GEMINI_OUTPUT_USD_PER_M: z.coerce.number().min(0).default(3.75),
 });
 
 export const env = envSchema.parse(process.env);
