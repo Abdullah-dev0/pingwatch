@@ -6,7 +6,20 @@ Pings `https://httpbin.org/anything` every 5 minutes with a random JSON payload,
 
 > Status: core app, tests, CI, deployment and the AI enhancement (Option B, LLM-powered insights, cut down on purpose, see [AI enhancement](#ai-enhancement-option-b-llm-powered-insights)) are done.
 
-**Contents:** [Features](#features) · [Architecture](#architecture) · [Tech choices](#tech-choices) · [Database schema](#database-schema) · [API](#api) · [Running locally](#running-locally) · [Deployment](#deployment) · [Testing strategy](#testing-strategy) · [AI enhancement](#ai-enhancement-option-b-llm-powered-insights) · [Assumptions](#assumptions) · [Trade-offs](#trade-offs-and-known-limitations) · [Future improvements](#future-improvements)
+## Contents
+
+1. [Features](#features)
+2. [Architecture](#architecture)
+3. [Tech choices](#tech-choices)
+4. [Database schema](#database-schema)
+5. [API](#api)
+6. [Running locally](#running-locally)
+7. [Deployment](#deployment)
+8. [Testing strategy](#testing-strategy)
+9. [AI enhancement](#ai-enhancement-option-b-llm-powered-insights)
+10. [Assumptions](#assumptions)
+11. [Trade-offs and known limitations](#trade-offs-and-known-limitations)
+12. [Future improvements](#future-improvements)
 
 ## Features
 
